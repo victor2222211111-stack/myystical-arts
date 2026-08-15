@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Admin Panel — Myystical_arts</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/admin.css" />
+</head>
+<body>
+
+  <!-- ════════════════════════════════════
+       LOGIN SCREEN
+  ════════════════════════════════════ -->
+  <div class="login-screen" id="login-screen">
+    <div class="login-card" role="main" aria-label="Admin login">
+      <div class="login-card__logo">
+        <span class="logo-text">M<span class="logo-accent">.</span>A</span>
+        <span class="logo-label">Admin Panel</span>
+      </div>
+      <h1 class="login-card__title">Sign In</h1>
+      <p class="login-card__sub">Secure access to Myystical_arts management</p>
+
+      <form class="login-form" id="login-form" novalidate autocomplete="off">
+        <div class="form-group">
+          <label class="form-label" for="login-username">Username</label>
+          <input
+            class="form-input"
+            type="text"
+            id="login-username"
+            name="username"
+            placeholder="Enter admin username"
+            autocomplete="username"
+            spellcheck="false"
+            required
+          />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="login-password">Password</label>
+          <div class="input-wrapper">
+            <input
+              class="form-input"
+              type="password"
+              id="login-password"
+              name="password"
+              placeholder="Enter admin password"
+              autocomplete="current-password"
+              required
+            />
+            <button type="button" class="input-toggle" id="pw-toggle" aria-label="Toggle password visibility">👁</button>
+          </div>
+        </div>
+
+        <div id="login-error" class="form-error" style="display:none" role="alert"></div>
+
+        <button class="btn btn--primary btn--full" type="submit" id="login-submit">
+          <span class="btn__text">Sign In</span>
+          <span class="btn__spinner" aria-hidden="true"></span>
+        </button>
+      </form>
+
+      <p class="login-card__back"><a href="/" class="link">← Back to Gallery</a></p>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════
+       ADMIN DASHBOARD
+  ════════════════════════════════════ -->
+  <div class="admin-app" id="admin-app" style="display:none">
+
+    <!-- Sidebar -->
+    <nav class="admin-nav" id="admin-nav" aria-label="Admin navigation">
+      <div class="admin-nav__logo">
+        <span class="logo-text">M<span class="logo-accent">.</span>A</span>
+        <span class="logo-label">Admin</span>
+      </div>
+      <ul class="admin-nav__list" role="list">
+        <li><button class="admin-nav__item admin-nav__item--active" data-section="dashboard" id="nav-dashboard">
+          <span class="nav-icon">◈</span> Dashboard
+        </button></li>
+        <li><button class="admin-nav__item" data-section="images" id="nav-images">
+          <span class="nav-icon">◻</span> Images
+        </button></li>
+        <li><button class="admin-nav__item" data-section="actresses" id="nav-actresses">
+          <span class="nav-icon">◉</span> Actresses
+        </button></li>
+        <li><button class="admin-nav__item" data-section="categories" id="nav-categories">
+          <span class="nav-icon">◈</span> Categories
+        </button></li>
+        <li><button class="admin-nav__item" data-section="settings" id="nav-settings">
+          <span class="nav-icon">◎</span> Settings
+        </button></li>
+      </ul>
+      <div class="admin-nav__footer">
+        <a href="/" class="admin-nav__gallery-link" target="_blank">↗ View Gallery</a>
+        <button class="admin-nav__logout" id="logout-btn">Sign Out</button>
+      </div>
+    </nav>
+
+    <!-- Main content area -->
+    <div class="admin-content" id="admin-content">
+
+      <!-- ── Dashboard ── -->
+      <section class="admin-section" id="section-dashboard">
+        <h2 class="admin-section__title">Dashboard</h2>
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-card__value" id="stat-images">—</div>
+            <div class="stat-card__label">Total Images</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card__value" id="stat-actresses">—</div>
+            <div class="stat-card__label">Actresses</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card__value" id="stat-categories">—</div>
+            <div class="stat-card__label">Categories</div>
+          </div>
+        </div>
+        <div class="dashboard-links">
+          <button class="dash-btn" id="dash-upload">+ Upload Image</button>
+          <button class="dash-btn" id="dash-actress">+ Add Actress</button>
+        </div>
+      </section>
+
+      <!-- ── Images ── -->
+      <section class="admin-section" id="section-images" style="display:none">
+        <div class="admin-section__header">
+          <h2 class="admin-section__title">Images</h2>
+          <button class="btn btn--primary" id="open-upload-modal">+ Upload Image</button>
+        </div>
+
+        <div class="admin-table-wrap">
+          <table class="admin-table" id="images-table" aria-label="Images table">
+            <thead>
+              <tr>
+                <th>Preview</th>
+                <th>Actress</th>
+                <th>Category</th>
+                <th>Caption</th>
+                <th>Order</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="images-tbody">
+              <tr><td colspan="6" class="table-loading">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ── Actresses ── -->
+      <section class="admin-section" id="section-actresses" style="display:none">
+        <div class="admin-section__header">
+          <h2 class="admin-section__title">Actresses</h2>
+          <button class="btn btn--primary" id="open-actress-modal">+ Add Actress</button>
+        </div>
+        <div class="admin-table-wrap">
+          <table class="admin-table" id="actresses-table" aria-label="Actresses table">
+            <thead>
+              <tr>
+                <th>Photo</th>
+                <th>Name</th>
+                <th>Instagram</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="actresses-tbody">
+              <tr><td colspan="5" class="table-loading">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ── Categories ── -->
+      <section class="admin-section" id="section-categories" style="display:none">
+        <div class="admin-section__header">
+          <h2 class="admin-section__title">Categories</h2>
+          <button class="btn btn--primary" id="open-category-modal">+ Add Category</button>
+        </div>
+        <div class="admin-table-wrap">
+          <table class="admin-table" id="categories-table" aria-label="Categories table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Slug</th>
+                <th>Description</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="categories-tbody">
+              <tr><td colspan="4" class="table-loading">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ── Settings ── -->
+      <section class="admin-section" id="section-settings" style="display:none">
+        <h2 class="admin-section__title">Site Settings</h2>
+        <form class="settings-form" id="settings-form" novalidate>
+          <div class="form-group">
+            <label class="form-label" for="s-site-name">Site Name</label>
+            <input class="form-input" type="text" id="s-site-name" name="site_name" maxlength="100" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="s-tagline">Tagline</label>
+            <input class="form-input" type="text" id="s-tagline" name="site_tagline" maxlength="200" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="s-ig-handle">Instagram Handle</label>
+            <input class="form-input" type="text" id="s-ig-handle" name="instagram_handle" maxlength="50" placeholder="@yourhandle" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="s-ig-url">Instagram URL</label>
+            <input class="form-input" type="url" id="s-ig-url" name="instagram_url" maxlength="500" />
+          </div>
+          <button class="btn btn--primary" type="submit">Save Settings</button>
+        </form>
+      </section>
+
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════
+       MODALS
+  ════════════════════════════════════ -->
+
+  <!-- Upload Image Modal -->
+  <div class="modal" id="upload-modal" role="dialog" aria-modal="true" aria-label="Upload images" aria-hidden="true">
+    <div class="modal__backdrop" data-close-modal="upload-modal"></div>
+    <div class="modal__box" style="max-width:600px">
+      <div class="modal__header">
+        <h3 class="modal__title">Upload Images <span id="upload-count-label" style="font-size:0.8rem;color:var(--text-muted);font-weight:400"></span></h3>
+        <button class="modal__close" data-close-modal="upload-modal" aria-label="Close">✕</button>
+      </div>
+
+      <form class="modal__form" id="upload-form" novalidate>
+
+        <!-- ── Step 1: Drop Zone ─────────────────────────────── -->
+        <div id="upload-step-drop">
+          <div class="drop-zone" id="drop-zone" role="button" tabindex="0" aria-label="Drop images here or click to browse">
+            <div class="drop-zone__icon">⬡</div>
+            <p class="drop-zone__text">Drag &amp; drop up to <strong>10 images</strong> here</p>
+            <p class="drop-zone__sub">or <span class="link">click to browse</span></p>
+            <p class="drop-zone__hint">JPEG · PNG · WebP · Max 10 MB each</p>
+            <input
+              type="file"
+              id="image-file"
+              name="images"
+              accept="image/jpeg,image/png,image/webp"
+              multiple
+              class="drop-zone__input"
+              aria-label="Choose image files"
+            />
+          </div>
+        </div>
+
+        <!-- ── Step 2: Carousel Preview ─────────────────────── -->
+        <div id="upload-step-carousel" style="display:none">
+
+          <!-- Slide viewport -->
+          <div class="carousel-viewport" id="carousel-viewport">
+            <div class="carousel-track" id="carousel-track"></div>
+          </div>
+
+          <!-- Navigation -->
+          <div class="carousel-nav">
+            <button type="button" class="carousel-arrow" id="carousel-prev" aria-label="Previous image">‹</button>
+            <div class="carousel-dots" id="carousel-dots"></div>
+            <button type="button" class="carousel-arrow" id="carousel-next" aria-label="Next image">›</button>
+          </div>
+
+          <!-- Clear all -->
+          <button type="button" class="btn btn--ghost btn--sm" id="upload-clear" style="margin-top:8px;width:100%">
+            ✕ Clear &amp; choose different files
+          </button>
+        </div>
+
+        <!-- ── Global fields (actress / category) ───────────── -->
+        <div id="upload-global-fields" style="display:none;margin-top:16px">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" for="upload-actress">Actress <span class="form-label--opt">(all images)</span></label>
+              <select class="form-select" id="upload-actress" name="actress_id">
+                <option value="">— Select Actress —</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="upload-category">Category <span class="form-label--opt">(all images)</span></label>
+              <select class="form-select" id="upload-category" name="category_id">
+                <option value="">— Select Category —</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── Progress bar ──────────────────────────────────── -->
+        <div id="upload-progress-wrap" style="display:none;margin-top:12px">
+          <div class="upload-progress-bar">
+            <div class="upload-progress-fill" id="upload-progress-fill"></div>
+          </div>
+          <p class="upload-progress-label" id="upload-progress-label">Uploading…</p>
+        </div>
+
+        <div class="modal__actions" style="padding:16px 0 0">
+          <button type="button" class="btn btn--ghost" data-close-modal="upload-modal">Cancel</button>
+          <button type="submit" class="btn btn--primary" id="upload-submit" style="display:none">
+            <span class="btn__spinner"></span>
+            <span class="btn__text">Upload</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Add/Edit Actress Modal -->
+  <div class="modal" id="actress-modal" role="dialog" aria-modal="true" aria-label="Actress details" aria-hidden="true">
+    <div class="modal__backdrop" data-close-modal="actress-modal"></div>
+    <div class="modal__box">
+      <div class="modal__header">
+        <h3 class="modal__title" id="actress-modal-title">Add Actress</h3>
+        <button class="modal__close" data-close-modal="actress-modal" aria-label="Close">✕</button>
+      </div>
+      <form class="modal__form" id="actress-form" novalidate enctype="multipart/form-data">
+        <input type="hidden" id="actress-id" name="id" value="" />
+        <div class="drop-zone drop-zone--small" id="face-drop-zone" role="button" tabindex="0" aria-label="Upload face photo">
+          <div class="drop-zone__icon">◉</div>
+          <p class="drop-zone__text">Face / Profile Photo</p>
+          <p class="drop-zone__sub"><span class="link">Click to upload</span></p>
+          <input type="file" id="face-file" name="face" accept="image/jpeg,image/png,image/webp" class="drop-zone__input" aria-label="Choose face photo" />
+        </div>
+        <div class="face-preview" id="face-preview" style="display:none">
+          <img class="face-preview__img" id="face-preview-img" src="" alt="Face preview" draggable="false" />
+          <button type="button" class="upload-preview__remove" id="face-remove" aria-label="Remove">✕</button>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="actress-name">Name *</label>
+          <input class="form-input" type="text" id="actress-name" name="name" maxlength="100" required placeholder="e.g. Deepika Padukone" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="actress-ig">Instagram URL <span class="form-label--opt">(optional)</span></label>
+          <input class="form-input" type="url" id="actress-ig" name="instagram_url" maxlength="500" placeholder="https://www.instagram.com/..." />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="actress-bio">Bio <span class="form-label--opt">(optional)</span></label>
+          <textarea class="form-input form-textarea" id="actress-bio" name="bio" maxlength="1000" rows="3" placeholder="Short biography…"></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="actress-order">Sort Order</label>
+          <input class="form-input" type="number" id="actress-order" name="sort_order" value="0" min="0" />
+        </div>
+        <div class="modal__actions">
+          <button type="button" class="btn btn--ghost" data-close-modal="actress-modal">Cancel</button>
+          <button type="submit" class="btn btn--primary" id="actress-submit">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Add/Edit Category Modal -->
+  <div class="modal" id="category-modal" role="dialog" aria-modal="true" aria-label="Category details" aria-hidden="true">
+    <div class="modal__backdrop" data-close-modal="category-modal"></div>
+    <div class="modal__box">
+      <div class="modal__header">
+        <h3 class="modal__title" id="category-modal-title">Add Category</h3>
+        <button class="modal__close" data-close-modal="category-modal" aria-label="Close">✕</button>
+      </div>
+      <form class="modal__form" id="category-form" novalidate>
+        <input type="hidden" id="category-id" name="id" value="" />
+        <div class="form-group">
+          <label class="form-label" for="cat-name">Name *</label>
+          <input class="form-input" type="text" id="cat-name" name="name" maxlength="100" required placeholder="e.g. Glamour" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="cat-description">Description <span class="form-label--opt">(optional)</span></label>
+          <textarea class="form-input form-textarea" id="cat-description" name="description" maxlength="500" rows="2" placeholder="Short description…"></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="cat-order">Sort Order</label>
+          <input class="form-input" type="number" id="cat-order" name="sort_order" value="0" min="0" />
+        </div>
+        <div class="modal__actions">
+          <button type="button" class="btn btn--ghost" data-close-modal="category-modal">Cancel</button>
+          <button type="submit" class="btn btn--primary" id="category-submit">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Confirm Delete Modal -->
+  <div class="modal" id="confirm-modal" role="dialog" aria-modal="true" aria-label="Confirm delete" aria-hidden="true">
+    <div class="modal__backdrop" data-close-modal="confirm-modal"></div>
+    <div class="modal__box modal__box--sm">
+      <div class="modal__header">
+        <h3 class="modal__title">Confirm Delete</h3>
+        <button class="modal__close" data-close-modal="confirm-modal" aria-label="Close">✕</button>
+      </div>
+      <div class="modal__body">
+        <p class="confirm-text" id="confirm-text">Are you sure you want to delete this item? This action cannot be undone.</p>
+      </div>
+      <div class="modal__actions">
+        <button type="button" class="btn btn--ghost" data-close-modal="confirm-modal">Cancel</button>
+        <button type="button" class="btn btn--danger" id="confirm-delete-btn">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast notifications -->
+  <div class="toast-container" id="toast-container" aria-live="polite" aria-atomic="true"></div>
+
+  <script src="/js/admin.js"></script>
+</body>
+</html>

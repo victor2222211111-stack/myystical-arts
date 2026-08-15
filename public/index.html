@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Myystical_arts — A curated collection of stunning Indian celebrity photography. Explore glamour, candid, and ethnic collections." />
+  <meta name="keywords" content="Indian celebrities, celebrity photography, Bollywood, glamour, curated gallery" />
+  <meta name="author" content="Myystical_arts" />
+  <meta name="robots" content="index, follow" />
+  <meta property="og:title" content="Myystical_arts — Curated Celebrity Gallery" />
+  <meta property="og:description" content="Discover stunning curated photography of Indian celebrities." />
+  <meta property="og:type" content="website" />
+  <title>Myystical_arts — Curated Celebrity Gallery</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/main.css" />
+</head>
+<body>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       SPLASH SCREEN
+  ════════════════════════════════════════════════════════════ -->
+  <div id="splash" class="splash" aria-hidden="true">
+    <canvas id="particle-canvas" class="splash__particles"></canvas>
+    <div class="splash__content">
+      <div class="splash__rings">
+        <div class="splash__ring splash__ring--1"></div>
+        <div class="splash__ring splash__ring--2"></div>
+        <div class="splash__ring splash__ring--3"></div>
+      </div>
+      <h1 class="splash__title" id="splash-title">
+        <span class="splash__title-word">Myystical</span><span class="splash__title-accent">_arts</span>
+      </h1>
+      <p class="splash__subtitle">Curated Indian Celebrity Gallery</p>
+      <div class="splash__line"></div>
+      <p class="splash__enter" id="splash-enter">tap anywhere to enter</p>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       MAIN APP
+  ════════════════════════════════════════════════════════════ -->
+  <div id="app" class="app app--hidden">
+
+    <!-- ── Header ── -->
+    <header class="header" id="header">
+      <div class="header__inner">
+        <button class="header__menu-btn" id="menu-toggle" aria-label="Open menu" aria-expanded="false" aria-controls="sidebar">
+          <span class="menu-icon">
+            <span class="menu-icon__bar"></span>
+            <span class="menu-icon__bar"></span>
+            <span class="menu-icon__bar"></span>
+          </span>
+        </button>
+
+        <a href="/" class="header__logo" id="header-logo" aria-label="Myystical_arts home">
+          <span class="header__logo-text">M<span class="header__logo-accent">.</span>A</span>
+        </a>
+
+        <div class="header__right">
+          <a href="#" class="header__ig-btn" id="header-ig-link" target="_blank" rel="noopener noreferrer" aria-label="Follow on Instagram">
+            <svg class="header__ig-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+              <rect x="2" y="2" width="20" height="20" rx="5" ry="5"/>
+              <circle cx="12" cy="12" r="4"/>
+              <circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"/>
+            </svg>
+            <span class="header__ig-handle" id="header-ig-handle">@myystical__arts</span>
+          </a>
+        </div>
+      </div>
+    </header>
+
+    <!-- ── Sidebar overlay ── -->
+    <div class="sidebar-overlay" id="sidebar-overlay" aria-hidden="true"></div>
+
+    <!-- ── Sidebar ── -->
+    <nav class="sidebar" id="sidebar" aria-label="Gallery navigation" aria-hidden="true">
+      <div class="sidebar__header">
+        <span class="sidebar__title">Navigate</span>
+        <button class="sidebar__close" id="sidebar-close" aria-label="Close menu">✕</button>
+      </div>
+
+      <div class="sidebar__section">
+        <h2 class="sidebar__section-title">Categories</h2>
+        <ul class="sidebar__list" id="category-list" role="list">
+          <li class="sidebar__item sidebar__item--active" data-filter="category" data-value="" role="listitem">
+            <span class="sidebar__item-dot"></span>All Categories
+          </li>
+        </ul>
+      </div>
+
+      <div class="sidebar__divider"></div>
+
+      <div class="sidebar__section">
+        <h2 class="sidebar__section-title">Actresses</h2>
+        <ul class="sidebar__list" id="actress-sidebar-list" role="list">
+          <li class="sidebar__item sidebar__item--active" data-filter="actress" data-value="" role="listitem">
+            <span class="sidebar__item-dot"></span>All Actresses
+          </li>
+        </ul>
+      </div>
+
+      <div class="sidebar__footer">
+        <a href="#" class="sidebar__ig-link" id="sidebar-ig-link" target="_blank" rel="noopener noreferrer">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+            <rect x="2" y="2" width="20" height="20" rx="5" ry="5"/>
+            <circle cx="12" cy="12" r="4"/>
+            <circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"/>
+          </svg>
+          <span id="sidebar-ig-handle">@myystical__arts</span>
+        </a>
+      </div>
+    </nav>
+
+    <!-- ── Main content ── -->
+    <main class="main" id="main-content" role="main">
+
+      <!-- Active filters bar -->
+      <div class="filters-bar" id="filters-bar" aria-live="polite">
+        <div class="filters-bar__inner">
+          <span class="filters-bar__label">Showing:</span>
+          <span class="filters-bar__active" id="filters-active">All Photos</span>
+          <button class="filters-bar__clear" id="filters-clear" style="display:none" aria-label="Clear filters">✕ Clear</button>
+        </div>
+      </div>
+
+      <!-- Image grid -->
+      <section class="gallery" id="gallery" aria-label="Celebrity photo gallery">
+        <!-- Skeleton placeholders -->
+        <div class="gallery__skeleton" id="gallery-skeleton" aria-hidden="true">
+          <div class="skeleton-card"></div>
+          <div class="skeleton-card"></div>
+          <div class="skeleton-card"></div>
+          <div class="skeleton-card"></div>
+          <div class="skeleton-card"></div>
+          <div class="skeleton-card"></div>
+        </div>
+        <!-- Dynamic image cards rendered by app.js -->
+        <div class="gallery__grid" id="gallery-grid" aria-label="Photo grid"></div>
+        <!-- Empty state -->
+        <div class="gallery__empty" id="gallery-empty" style="display:none" aria-live="polite">
+          <div class="empty-state">
+            <div class="empty-state__icon">◇</div>
+            <h3 class="empty-state__title">No photos yet</h3>
+            <p class="empty-state__desc">Check back soon — beautiful content is on the way.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Load more -->
+      <div class="load-more" id="load-more-container" style="display:none">
+        <button class="load-more__btn" id="load-more-btn" aria-label="Load more photos">
+          <span class="load-more__text">Load More</span>
+          <span class="load-more__spinner" aria-hidden="true"></span>
+        </button>
+      </div>
+
+      <!-- ── Actress Strip ── -->
+      <section class="actress-strip" id="actress-strip" aria-label="Browse by actress">
+        <div class="actress-strip__header">
+          <h2 class="actress-strip__title">Browse by Actress</h2>
+          <div class="actress-strip__line"></div>
+        </div>
+        <div class="actress-strip__scroll-wrapper">
+          <div class="actress-strip__track" id="actress-strip-track" role="list">
+            <!-- Populated by app.js -->
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Instagram Footer ── -->
+      <footer class="ig-footer" id="ig-footer" aria-label="Instagram profile">
+        <div class="ig-footer__inner">
+          <div class="ig-footer__glow" aria-hidden="true"></div>
+          <svg class="ig-footer__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+            <rect x="2" y="2" width="20" height="20" rx="5" ry="5"/>
+            <circle cx="12" cy="12" r="4"/>
+            <circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"/>
+          </svg>
+          <div class="ig-footer__text">
+            <p class="ig-footer__handle" id="footer-ig-handle">@myystical__arts</p>
+            <p class="ig-footer__desc">Follow for daily curated Indian celebrity photography</p>
+          </div>
+          <a href="#" class="ig-footer__btn" id="footer-ig-btn" target="_blank" rel="noopener noreferrer" aria-label="Visit Instagram profile">
+            Follow on Instagram
+            <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true" width="16" height="16">
+              <path d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z"/>
+            </svg>
+          </a>
+        </div>
+        <p class="ig-footer__copyright">© 2024 Myystical_arts · All Rights Reserved</p>
+      </footer>
+
+    </main>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       LIGHTBOX
+  ════════════════════════════════════════════════════════════ -->
+  <div class="lightbox" id="lightbox" role="dialog" aria-modal="true" aria-label="Image viewer" aria-hidden="true">
+    <div class="lightbox__backdrop" id="lightbox-backdrop"></div>
+    <button class="lightbox__close" id="lightbox-close" aria-label="Close image viewer">✕</button>
+    <button class="lightbox__nav lightbox__nav--prev" id="lightbox-prev" aria-label="Previous image">‹</button>
+    <button class="lightbox__nav lightbox__nav--next" id="lightbox-next" aria-label="Next image">›</button>
+    <div class="lightbox__content">
+      <div class="lightbox__img-wrapper">
+        <img class="lightbox__img" id="lightbox-img" src="" alt="" draggable="false" />
+        <div class="lightbox__no-dl" aria-hidden="true"></div>
+      </div>
+      <div class="lightbox__info">
+        <p class="lightbox__actress" id="lightbox-actress"></p>
+        <p class="lightbox__caption" id="lightbox-caption"></p>
+        <span class="lightbox__counter" id="lightbox-counter"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast notifications -->
+  <div class="toast-container" id="toast-container" aria-live="polite" aria-atomic="true"></div>
+
+  <script src="/js/lightbox.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>

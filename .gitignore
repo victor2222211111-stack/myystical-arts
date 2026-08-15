@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# Environment configuration
+.env
+.env.local
+
+# Database & SQLite storage
+*.db
+*.sqlite
+*.sqlite3
+
+# Uploaded images / user data
+uploads/*
+!uploads/.gitkeep
+
+# SSL certificate & private keys
+ssl/*.pem
+ssl/*.key
+ssl/*.crt
+
+# Logs & temp files
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS / Editor generated files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
