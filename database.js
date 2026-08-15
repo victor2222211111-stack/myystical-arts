@@ -628,13 +628,21 @@ async function uploadFileToStorage(fileBuffer, originalFilename, mimeType) {
       const ext = path.extname(originalFilename).toLowerCase() || '.jpg';
       const filename = `${crypto.randomUUID()}${ext}`;
 
-      const { error } = await getSupabase()
+      let { error } = await getSupabase()
         .storage
         .from('gallery-uploads')
         .upload(filename, fileBuffer, {
           contentType: type,
           upsert: true,
         });
+
+      if (error && error.message && (error.message.includes('not found') || error.message.includes('Bucket') || error.message.includes('does not exist'))) {
+        try {
+          await getSupabase().storage.createBucket('gallery-uploads', { public: true });
+          const res2 = await getSupabase().storage.from('gallery-uploads').upload(filename, fileBuffer, { contentType: type, upsert: true });
+          error = res2.error;
+        } catch (_) {}
+      }
 
       if (!error) {
         const { data } = getSupabase().storage.from('gallery-uploads').getPublicUrl(filename);
@@ -659,6 +667,7 @@ async function uploadFileToStorage(fileBuffer, originalFilename, mimeType) {
   // Self-contained Data URL fallback guarantees 100% working image preview and gallery display
   return dataUrl;
 }
+
 
 async function getFileFromStorage(filename) {
   await ensureReady();
