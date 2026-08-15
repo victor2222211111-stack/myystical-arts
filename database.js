@@ -21,13 +21,26 @@ let db       = null;
 const DB_PATH  = path.join(__dirname, 'gallery.db');
 const WASM_DIR = path.join(__dirname, 'node_modules', 'sql.js', 'dist');
 
-// In-memory fallback cache for settings
+// Default Seed Categories
+const defaultCategories = [
+  { id: 1, name: 'Glamour',   slug: 'glamour',   description: 'Red carpet & high fashion',         sort_order: 0 },
+  { id: 2, name: 'Candid',    slug: 'candid',    description: 'Natural, behind-the-scenes moments', sort_order: 1 },
+  { id: 3, name: 'Ethnic',    slug: 'ethnic',    description: 'Traditional & ethnic wear',          sort_order: 2 },
+  { id: 4, name: 'Editorial', slug: 'editorial', description: 'Magazine & editorial shoots',        sort_order: 3 },
+  { id: 5, name: 'Events',    slug: 'events',    description: 'Award shows & public events',        sort_order: 4 },
+];
+
+// In-memory fallback cache for settings, images, actresses, and categories
 const memorySettings = {
   site_name:        process.env.SITE_NAME     || 'Myystical_arts',
   site_tagline:     process.env.SITE_TAGLINE  || 'Curated Indian Celebrity Gallery',
   instagram_url:    process.env.INSTAGRAM_URL || 'https://www.instagram.com/myystical__arts?utm_source=ig_web_button_share_sheet&igsh=ZDNlZDc0MzIxNw==',
   instagram_handle: process.env.INSTAGRAM_HANDLE || '@myystical__arts',
 };
+
+const memoryCategories = [...defaultCategories];
+const memoryActresses  = [];
+const memoryImages     = [];
 
 // ─── Persistence (SQLite local fallback only) ──────────────────────────────────
 function save() {
@@ -127,6 +140,13 @@ function initSqliteSchema() {
         key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT DEFAULT (datetime('now'))
       );
     `);
+    // Seed default categories in SQLite if empty
+    const count = sqliteGet('SELECT COUNT(*) AS n FROM categories')?.n || 0;
+    if (count === 0) {
+      for (const cat of defaultCategories) {
+        db.run('INSERT OR IGNORE INTO categories (id,name,slug,description,sort_order) VALUES (?,?,?,?,?)', [cat.id, cat.name, cat.slug, cat.description, cat.sort_order]);
+      }
+    }
     save();
   } catch (_) {}
 }
@@ -178,10 +198,11 @@ async function getCategories() {
   if (IS_SUPABASE && getSupabase()) {
     try {
       const { data, error } = await getSupabase().from('categories').select('*').order('sort_order', { ascending: true }).order('name', { ascending: true });
-      if (!error && data) return data;
+      if (!error && data && data.length > 0) return data;
     } catch (_) {}
   }
-  return sqliteAll('SELECT * FROM categories ORDER BY sort_order, name');
+  const rows = sqliteAll('SELECT * FROM categories ORDER BY sort_order, name');
+  return rows.length > 0 ? rows : memoryCategories;
 }
 
 async function getActresses() {
@@ -189,10 +210,11 @@ async function getActresses() {
   if (IS_SUPABASE && getSupabase()) {
     try {
       const { data, error } = await getSupabase().from('actresses').select('*').or('is_active.eq.1,is_active.is.null').order('sort_order', { ascending: true }).order('name', { ascending: true });
-      if (!error && data) return data;
+      if (!error && data && data.length > 0) return data;
     } catch (_) {}
   }
-  return sqliteAll('SELECT * FROM actresses WHERE is_active = 1 OR is_active IS NULL ORDER BY sort_order, name');
+  const rows = sqliteAll('SELECT * FROM actresses WHERE is_active = 1 OR is_active IS NULL ORDER BY sort_order, name');
+  return rows.length > 0 ? rows : memoryActresses.filter(a => a.is_active !== 0);
 }
 
 async function getActressesAll() {
@@ -200,10 +222,11 @@ async function getActressesAll() {
   if (IS_SUPABASE && getSupabase()) {
     try {
       const { data, error } = await getSupabase().from('actresses').select('*').order('sort_order', { ascending: true }).order('name', { ascending: true });
-      if (!error && data) return data;
+      if (!error && data && data.length > 0) return data;
     } catch (_) {}
   }
-  return sqliteAll('SELECT * FROM actresses ORDER BY sort_order, name');
+  const rows = sqliteAll('SELECT * FROM actresses ORDER BY sort_order, name');
+  return rows.length > 0 ? rows : memoryActresses;
 }
 
 async function getImages({ actress_id, category_id, page = 1, limit = 30 } = {}) {
@@ -212,26 +235,29 @@ async function getImages({ actress_id, category_id, page = 1, limit = 30 } = {})
 
   if (IS_SUPABASE && getSupabase()) {
     try {
-      let query = getSupabase()
-        .from('images')
-        .select('*, actresses(name, slug), categories(name, slug)')
-        .or('is_active.eq.1,is_active.is.null');
-
+      let query = getSupabase().from('images').select('*').or('is_active.eq.1,is_active.is.null');
       if (actress_id)  query = query.eq('actress_id',  actress_id);
       if (category_id) query = query.eq('category_id', category_id);
 
-      const { data, error } = await query
+      const { data: rawImages, error } = await query
         .order('sort_order', { ascending: false })
         .order('created_at', { ascending: false })
         .range(offset, offset + limit - 1);
 
-      if (!error && data) {
-        return data.map(img => ({
+      if (!error && rawImages) {
+        const [actresses, categories] = await Promise.all([
+          getActressesAll(),
+          getCategories(),
+        ]);
+        const actMap = Object.fromEntries(actresses.map(a => [a.id, a]));
+        const catMap = Object.fromEntries(categories.map(c => [c.id, c]));
+
+        return rawImages.map(img => ({
           ...img,
-          actress_name:  img.actresses?.name  || null,
-          actress_slug:  img.actresses?.slug  || null,
-          category_name: img.categories?.name || null,
-          category_slug: img.categories?.slug || null,
+          actress_name:  actMap[img.actress_id]?.name   || null,
+          actress_slug:  actMap[img.actress_id]?.slug   || null,
+          category_name: catMap[img.category_id]?.name  || null,
+          category_slug: catMap[img.category_id]?.slug  || null,
         }));
       }
     } catch (_) {}
@@ -245,13 +271,19 @@ async function getImages({ actress_id, category_id, page = 1, limit = 30 } = {})
     LEFT JOIN categories c ON i.category_id = c.id
     WHERE i.is_active = 1 OR i.is_active IS NULL
   `;
-
   const params = [];
   if (actress_id)  { query += ' AND i.actress_id = ?';  params.push(actress_id);  }
   if (category_id) { query += ' AND i.category_id = ?'; params.push(category_id); }
   query += ' ORDER BY i.sort_order DESC, i.created_at DESC LIMIT ? OFFSET ?';
   params.push(limit, offset);
-  return sqliteAll(query, params);
+  const rows = sqliteAll(query, params);
+  if (rows.length > 0) return rows;
+
+  // In-memory fallback filter
+  let filtered = [...memoryImages];
+  if (actress_id)  filtered = filtered.filter(img => img.actress_id == actress_id);
+  if (category_id) filtered = filtered.filter(img => img.category_id == category_id);
+  return filtered.slice(offset, offset + limit);
 }
 
 async function getImageCount({ actress_id, category_id } = {}) {
@@ -269,9 +301,10 @@ async function getImageCount({ actress_id, category_id } = {}) {
   const params = [];
   if (actress_id)  { query += ' AND actress_id = ?';  params.push(actress_id);  }
   if (category_id) { query += ' AND category_id = ?'; params.push(category_id); }
-  return sqliteGet(query, params)?.n || 0;
+  const count = sqliteGet(query, params)?.n;
+  if (count !== undefined && count !== null && count > 0) return count;
+  return memoryImages.length;
 }
-
 
 async function getImageById(id) {
   await ensureReady();
@@ -281,7 +314,7 @@ async function getImageById(id) {
       if (data) return data;
     } catch (_) {}
   }
-  return sqliteGet('SELECT * FROM images WHERE id = ?', [id]);
+  return sqliteGet('SELECT * FROM images WHERE id = ?', [id]) || memoryImages.find(i => i.id == id) || null;
 }
 
 async function getActressById(id) {
@@ -292,7 +325,7 @@ async function getActressById(id) {
       if (data) return data;
     } catch (_) {}
   }
-  return sqliteGet('SELECT * FROM actresses WHERE id = ?', [id]);
+  return sqliteGet('SELECT * FROM actresses WHERE id = ?', [id]) || memoryActresses.find(a => a.id == id) || null;
 }
 
 async function getCategoryById(id) {
@@ -303,36 +336,60 @@ async function getCategoryById(id) {
       if (data) return data;
     } catch (_) {}
   }
-  return sqliteGet('SELECT * FROM categories WHERE id = ?', [id]);
+  return sqliteGet('SELECT * FROM categories WHERE id = ?', [id]) || memoryCategories.find(c => c.id == id) || null;
 }
 
 async function insertImage(data) {
   await ensureReady();
+  const id = Date.now();
+  const item = {
+    id,
+    actress_id:        data.actress_id  || null,
+    category_id:       data.category_id || null,
+    filename:          data.filename,
+    original_filename: data.original_filename,
+    caption:           data.caption || '',
+    width:             data.width || 0,
+    height:            data.height || 0,
+    file_size:         data.file_size || 0,
+    sort_order:        data.sort_order || 0,
+    is_active:         1,
+    created_at:        new Date().toISOString(),
+  };
+  memoryImages.unshift(item);
+
   if (IS_SUPABASE && getSupabase()) {
     try {
       const { data: res, error } = await getSupabase().from('images').insert([{
-        actress_id:        data.actress_id  || null,
-        category_id:       data.category_id || null,
-        filename:          data.filename,
-        original_filename: data.original_filename,
-        caption:           data.caption || '',
-        width:             data.width || 0,
-        height:            data.height || 0,
-        file_size:         data.file_size || 0,
-        sort_order:        data.sort_order || 0,
+        actress_id:        item.actress_id,
+        category_id:       item.category_id,
+        filename:          item.filename,
+        original_filename: item.original_filename,
+        caption:           item.caption,
+        width:             item.width,
+        height:            item.height,
+        file_size:         item.file_size,
+        sort_order:        item.sort_order,
         is_active:         1,
       }]).select('id').single();
       if (!error && res) return { lastInsertRowid: res.id };
     } catch (_) {}
   }
-  return sqliteRun(
+
+  const sqlRes = sqliteRun(
     `INSERT INTO images (actress_id,category_id,filename,original_filename,caption,width,height,file_size,sort_order,is_active) VALUES (?,?,?,?,?,?,?,?,?,1)`,
-    [data.actress_id||null, data.category_id||null, data.filename, data.original_filename, data.caption||'', data.width||0, data.height||0, data.file_size||0, data.sort_order||0]
+    [item.actress_id, item.category_id, item.filename, item.original_filename, item.caption, item.width, item.height, item.file_size, item.sort_order]
   );
+  return { lastInsertRowid: sqlRes.lastInsertRowid || id };
 }
 
 async function updateImage(id, data) {
   await ensureReady();
+  const idx = memoryImages.findIndex(i => i.id == id);
+  if (idx !== -1) {
+    memoryImages[idx] = { ...memoryImages[idx], ...data };
+  }
+
   if (IS_SUPABASE && getSupabase()) {
     try {
       await getSupabase().from('images').update({
@@ -348,6 +405,9 @@ async function updateImage(id, data) {
 
 async function deleteImage(id) {
   await ensureReady();
+  const idx = memoryImages.findIndex(i => i.id == id);
+  if (idx !== -1) memoryImages.splice(idx, 1);
+
   if (IS_SUPABASE && getSupabase()) {
     try {
       await getSupabase().from('images').delete().eq('id', id);
@@ -358,29 +418,49 @@ async function deleteImage(id) {
 
 async function insertActress(data) {
   await ensureReady();
+  const id = Date.now();
+  const item = {
+    id,
+    name:          data.name,
+    slug:          data.slug,
+    face_filename: data.face_filename || null,
+    bio:           data.bio || '',
+    instagram_url: data.instagram_url || '',
+    sort_order:    data.sort_order || 0,
+    is_active:     1,
+    created_at:    new Date().toISOString(),
+  };
+  memoryActresses.unshift(item);
+
   if (IS_SUPABASE && getSupabase()) {
     try {
       const { data: res, error } = await getSupabase().from('actresses').insert([{
-        name:          data.name,
-        slug:          data.slug,
-        face_filename: data.face_filename || null,
-        bio:           data.bio || '',
-        instagram_url: data.instagram_url || '',
-        sort_order:    data.sort_order || 0,
+        name:          item.name,
+        slug:          item.slug,
+        face_filename: item.face_filename,
+        bio:           item.bio,
+        instagram_url: item.instagram_url,
+        sort_order:    item.sort_order,
         is_active:     1,
       }]).select('id').single();
       if (!error && res) return { lastInsertRowid: res.id };
     } catch (_) {}
   }
-  return sqliteRun(
-    'INSERT INTO actresses (name,slug,face_filename,bio,instagram_url,sort_order,is_active) VALUES (?,?,?,?,?,?,1)',
-    [data.name, data.slug, data.face_filename||null, data.bio||'', data.instagram_url||'', data.sort_order||0]
-  );
-}
 
+  const sqlRes = sqliteRun(
+    'INSERT INTO actresses (name,slug,face_filename,bio,instagram_url,sort_order,is_active) VALUES (?,?,?,?,?,?,1)',
+    [item.name, item.slug, item.face_filename, item.bio, item.instagram_url, item.sort_order]
+  );
+  return { lastInsertRowid: sqlRes.lastInsertRowid || id };
+}
 
 async function updateActress(id, data) {
   await ensureReady();
+  const idx = memoryActresses.findIndex(a => a.id == id);
+  if (idx !== -1) {
+    memoryActresses[idx] = { ...memoryActresses[idx], ...data };
+  }
+
   if (IS_SUPABASE && getSupabase()) {
     try {
       await getSupabase().from('actresses').update({
@@ -402,6 +482,9 @@ async function updateActress(id, data) {
 
 async function deleteActress(id) {
   await ensureReady();
+  const idx = memoryActresses.findIndex(a => a.id == id);
+  if (idx !== -1) memoryActresses.splice(idx, 1);
+
   if (IS_SUPABASE && getSupabase()) {
     try {
       await getSupabase().from('actresses').delete().eq('id', id);
@@ -412,22 +495,40 @@ async function deleteActress(id) {
 
 async function insertCategory(data) {
   await ensureReady();
+  const id = Date.now();
+  const item = {
+    id,
+    name:        data.name,
+    slug:        data.slug,
+    description: data.description || '',
+    sort_order:  data.sort_order || 0,
+    created_at:  new Date().toISOString(),
+  };
+  memoryCategories.push(item);
+
   if (IS_SUPABASE && getSupabase()) {
     try {
       const { data: res, error } = await getSupabase().from('categories').insert([{
-        name:        data.name,
-        slug:        data.slug,
-        description: data.description || '',
-        sort_order:  data.sort_order || 0,
+        name:        item.name,
+        slug:        item.slug,
+        description: item.description,
+        sort_order:  item.sort_order,
       }]).select('id').single();
       if (!error && res) return { lastInsertRowid: res.id };
     } catch (_) {}
   }
-  return sqliteRun('INSERT INTO categories (name,slug,description,sort_order) VALUES (?,?,?,?)', [data.name, data.slug, data.description||'', data.sort_order||0]);
+
+  const sqlRes = sqliteRun('INSERT INTO categories (name,slug,description,sort_order) VALUES (?,?,?,?)', [item.name, item.slug, item.description, item.sort_order]);
+  return { lastInsertRowid: sqlRes.lastInsertRowid || id };
 }
 
 async function updateCategory(id, data) {
   await ensureReady();
+  const idx = memoryCategories.findIndex(c => c.id == id);
+  if (idx !== -1) {
+    memoryCategories[idx] = { ...memoryCategories[idx], ...data };
+  }
+
   if (IS_SUPABASE && getSupabase()) {
     try {
       await getSupabase().from('categories').update({
@@ -443,6 +544,9 @@ async function updateCategory(id, data) {
 
 async function deleteCategory(id) {
   await ensureReady();
+  const idx = memoryCategories.findIndex(c => c.id == id);
+  if (idx !== -1) memoryCategories.splice(idx, 1);
+
   if (IS_SUPABASE && getSupabase()) {
     try {
       await getSupabase().from('categories').delete().eq('id', id);
@@ -521,27 +625,15 @@ async function isTokenRevoked(jti) {
 
 async function getStats() {
   await ensureReady();
-  if (IS_SUPABASE && getSupabase()) {
-    try {
-      const [img, act, cat] = await Promise.all([
-        getSupabase().from('images').select('*', { count: 'exact', head: true }).eq('is_active', 1),
-        getSupabase().from('actresses').select('*', { count: 'exact', head: true }).eq('is_active', 1),
-        getSupabase().from('categories').select('*', { count: 'exact', head: true }),
-      ]);
-      return {
-        images:     img.count || 0,
-        actresses:  act.count || 0,
-        categories: cat.count || 0,
-      };
-    } catch (_) {
-      return { images: 0, actresses: 0, categories: 0 };
-    }
-  }
-
+  const [images, actresses, categories] = await Promise.all([
+    getImages({ page: 1, limit: 1000 }),
+    getActressesAll(),
+    getCategories(),
+  ]);
   return {
-    images:     sqliteGet('SELECT COUNT(*) AS n FROM images WHERE is_active=1')?.n || 0,
-    actresses:  sqliteGet('SELECT COUNT(*) AS n FROM actresses WHERE is_active=1')?.n || 0,
-    categories: sqliteGet('SELECT COUNT(*) AS n FROM categories')?.n || 0,
+    images:     images.length,
+    actresses:  actresses.length,
+    categories: categories.length,
   };
 }
 
