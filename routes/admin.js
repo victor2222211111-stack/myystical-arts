@@ -311,11 +311,18 @@ router.delete('/images/:id', requireAuth, [param('id').isInt({ min: 1 }).toInt()
 router.get('/actresses', requireAuth, async (req, res) => {
   try {
     const actresses = await db.getActressesAll();
-    res.json({ success: true, data: actresses.map(a => ({ ...a, face_url: a.face_filename ? `/uploads/${a.face_filename}` : null })) });
+    res.json({
+      success: true,
+      data: actresses.map(a => ({
+        ...a,
+        face_url: (a.face_filename?.startsWith('http') || a.face_filename?.startsWith('data:')) ? a.face_filename : (a.face_filename ? `/uploads/${a.face_filename}` : null)
+      }))
+    });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Failed to fetch actresses' });
   }
 });
+
 
 // POST /api/admin/actresses
 router.post(

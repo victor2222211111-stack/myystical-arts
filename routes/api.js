@@ -49,7 +49,7 @@ router.get('/actresses', async (req, res) => {
     const actresses = await db.getActresses();
     const data = actresses.map(a => ({
       ...a,
-      face_url: a.face_filename ? `/uploads/${a.face_filename}` : null,
+      face_url: (a.face_filename?.startsWith('http') || a.face_filename?.startsWith('data:')) ? a.face_filename : (a.face_filename ? `/uploads/${a.face_filename}` : null),
     }));
     res.json({ success: true, data });
   } catch (err) {
@@ -57,6 +57,7 @@ router.get('/actresses', async (req, res) => {
     res.status(500).json({ success: false, error: 'Failed to fetch actresses' });
   }
 });
+
 
 // ─── GET /api/images ──────────────────────────────────────────────────────────
 router.get(

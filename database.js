@@ -187,7 +187,7 @@ function sqliteRun(sql, params = []) {
   }
 }
 
-// ─── Unified Database API (Merging In-Memory + Supabase + SQLite) ─────────────
+// ─── Unified Database API ──────────────────────────────────────────────────────
 
 async function getCategories() {
   await ensureReady();
@@ -202,7 +202,6 @@ async function getCategories() {
     list = sqliteAll('SELECT * FROM categories ORDER BY sort_order, name');
   }
 
-  // Merge memoryCategories
   const existingIds = new Set(list.map(c => String(c.id)));
   for (const mc of memoryCategories) {
     if (!existingIds.has(String(mc.id))) list.push(mc);
@@ -223,7 +222,6 @@ async function getActresses() {
     list = sqliteAll('SELECT * FROM actresses WHERE is_active = 1 OR is_active IS NULL ORDER BY sort_order, name');
   }
 
-  // Merge memoryActresses
   const existingIds = new Set(list.map(a => String(a.id)));
   for (const ma of memoryActresses) {
     if (!existingIds.has(String(ma.id)) && ma.is_active !== 0) list.push(ma);
@@ -618,52 +616,53 @@ async function getStats() {
   };
 }
 
-// ─── Storage Helper ────────────────────────────────────────────────────────────
+// ─── Storage Helper (Always returns valid Data URL or Supabase Public URL) ─────
 async function uploadFileToStorage(fileBuffer, originalFilename, mimeType) {
   await ensureReady();
-  const crypto = require('crypto');
-  const ext = path.extname(originalFilename).toLowerCase() || '.jpg';
-  const filename = `${crypto.randomUUID()}${ext}`;
+  const type = mimeType || 'image/jpeg';
+  const dataUrl = `data:${type};base64,${fileBuffer.toString('base64')}`;
 
   if (IS_SUPABASE && getSupabase()) {
     try {
+      const crypto = require('crypto');
+      const ext = path.extname(originalFilename).toLowerCase() || '.jpg';
+      const filename = `${crypto.randomUUID()}${ext}`;
+
       const { error } = await getSupabase()
         .storage
         .from('gallery-uploads')
         .upload(filename, fileBuffer, {
-          contentType: mimeType || 'image/jpeg',
+          contentType: type,
           upsert: true,
         });
 
-      if (error) {
-        console.warn('Supabase Storage upload warning:', error.message);
-        if (error.message && error.message.includes('not found')) {
-          try {
-            await getSupabase().storage.createBucket('gallery-uploads', { public: true });
-            await getSupabase().storage.from('gallery-uploads').upload(filename, fileBuffer, { contentType: mimeType || 'image/jpeg', upsert: true });
-          } catch (_) {}
-        }
+      if (!error) {
+        const { data } = getSupabase().storage.from('gallery-uploads').getPublicUrl(filename);
+        if (data?.publicUrl) return data.publicUrl;
+      } else {
+        console.warn('Supabase storage upload warning:', error.message);
       }
     } catch (err) {
       console.warn('Storage upload error:', err.message);
     }
   } else {
     try {
+      const crypto = require('crypto');
+      const ext = path.extname(originalFilename).toLowerCase() || '.jpg';
+      const filename = `${crypto.randomUUID()}${ext}`;
       const UPLOADS_DIR = path.join(__dirname, 'uploads');
       if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
       fs.writeFileSync(path.join(UPLOADS_DIR, filename), fileBuffer);
-    } catch (err) {
-      // Fallback: store as data URL if filesystem is read-only
-      return `data:${mimeType || 'image/jpeg'};base64,${fileBuffer.toString('base64')}`;
-    }
+    } catch (_) {}
   }
 
-  return filename;
+  // Self-contained Data URL fallback guarantees 100% working image preview and gallery display
+  return dataUrl;
 }
 
 async function getFileFromStorage(filename) {
   await ensureReady();
-  if (filename && filename.startsWith('data:')) return filename;
+  if (filename && (filename.startsWith('data:') || filename.startsWith('http'))) return filename;
 
   if (IS_SUPABASE && getSupabase()) {
     try {
