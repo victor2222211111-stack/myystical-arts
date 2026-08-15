@@ -10,9 +10,22 @@
 const path = require('path');
 const fs   = require('fs');
 
-const SUPABASE_URL = process.env.SUPABASE_URL || '';
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY || '';
-const IS_SUPABASE  = Boolean(SUPABASE_URL && SUPABASE_KEY);
+// Accept all common aliases for Supabase Project URL and Service Role / Anon Key
+const SUPABASE_URL = process.env.SUPABASE_URL
+  || process.env.SUPABASE_PROJECT_URL
+  || process.env.PROJECT_URL
+  || process.env.NEXT_PUBLIC_SUPABASE_URL
+  || '';
+
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
+  || process.env.SUPABASE_SERVICE_KEY
+  || process.env.SERVICE_ROLE_KEY
+  || process.env.SUPABASE_KEY
+  || process.env.SUPABASE_ANON_KEY
+  || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  || '';
+
+const IS_SUPABASE = Boolean(SUPABASE_URL && SUPABASE_KEY);
 
 let supabase = null;
 let SQL      = null;
@@ -65,7 +78,7 @@ async function init() {
         supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
           auth: { persistSession: false },
         });
-        console.log('⚡ Initialised Supabase Client');
+        console.log('⚡ Initialised Supabase Client with URL:', SUPABASE_URL);
       } catch (err) {
         console.warn('Supabase init warning:', err.message);
       }
@@ -187,7 +200,7 @@ function sqliteRun(sql, params = []) {
   }
 }
 
-// ─── Unified Database API ──────────────────────────────────────────────────────
+// ─── Unified Database API (Merging In-Memory + Supabase + SQLite) ─────────────
 
 async function getCategories() {
   await ensureReady();
@@ -345,7 +358,7 @@ async function insertImage(data) {
 
   if (IS_SUPABASE && getSupabase()) {
     try {
-      const { data: res, error } = await getSupabase().from('images').insert([{
+      const fullPayload = {
         actress_id:        item.actress_id,
         category_id:       item.category_id,
         filename:          item.filename,
@@ -356,9 +369,28 @@ async function insertImage(data) {
         file_size:         item.file_size,
         sort_order:        item.sort_order,
         is_active:         1,
-      }]).select('id').single();
-      if (!error && res) return { lastInsertRowid: res.id };
-    } catch (_) {}
+      };
+      let { data: res, error } = await getSupabase().from('images').insert([fullPayload]).select('id').single();
+
+      if (error) {
+        console.warn('Supabase full insert warning:', error.message);
+        // Fallback to core columns if optional columns don't exist in Supabase schema
+        const corePayload = {
+          actress_id:        item.actress_id,
+          category_id:       item.category_id,
+          filename:          item.filename,
+          original_filename: item.original_filename,
+          caption:           item.caption,
+          sort_order:        item.sort_order,
+        };
+        const res2 = await getSupabase().from('images').insert([corePayload]).select('id').single();
+        if (!res2.error && res2.data) return { lastInsertRowid: res2.data.id };
+      } else if (res) {
+        return { lastInsertRowid: res.id };
+      }
+    } catch (err) {
+      console.error('Supabase insertImage exception:', err.message);
+    }
   }
 
   const sqlRes = sqliteRun(
@@ -417,7 +449,7 @@ async function insertActress(data) {
 
   if (IS_SUPABASE && getSupabase()) {
     try {
-      const { data: res, error } = await getSupabase().from('actresses').insert([{
+      const fullPayload = {
         name:          item.name,
         slug:          item.slug,
         face_filename: item.face_filename,
@@ -425,9 +457,27 @@ async function insertActress(data) {
         instagram_url: item.instagram_url,
         sort_order:    item.sort_order,
         is_active:     1,
-      }]).select('id').single();
-      if (!error && res) return { lastInsertRowid: res.id };
-    } catch (_) {}
+      };
+      let { data: res, error } = await getSupabase().from('actresses').insert([fullPayload]).select('id').single();
+
+      if (error) {
+        console.warn('Supabase full actress insert warning:', error.message);
+        const corePayload = {
+          name:          item.name,
+          slug:          item.slug,
+          face_filename: item.face_filename,
+          bio:           item.bio,
+          instagram_url: item.instagram_url,
+          sort_order:    item.sort_order,
+        };
+        const res2 = await getSupabase().from('actresses').insert([corePayload]).select('id').single();
+        if (!res2.error && res2.data) return { lastInsertRowid: res2.data.id };
+      } else if (res) {
+        return { lastInsertRowid: res.id };
+      }
+    } catch (err) {
+      console.error('Supabase insertActress exception:', err.message);
+    }
   }
 
   const sqlRes = sqliteRun(
@@ -667,7 +717,6 @@ async function uploadFileToStorage(fileBuffer, originalFilename, mimeType) {
   // Self-contained Data URL fallback guarantees 100% working image preview and gallery display
   return dataUrl;
 }
-
 
 async function getFileFromStorage(filename) {
   await ensureReady();

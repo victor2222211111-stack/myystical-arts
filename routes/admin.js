@@ -136,6 +136,48 @@ router.get('/stats', requireAuth, async (req, res) => {
   }
 });
 
+// GET /api/admin/db-status — Diagnostic endpoint for Supabase connection & persistence
+router.get('/db-status', requireAuth, async (req, res) => {
+  try {
+    const isSupabase = db.IS_SUPABASE;
+    const clientReady = Boolean(db.getSupabase());
+    let supabaseTables = null;
+    let errorMsg = null;
+
+    if (isSupabase && db.getSupabase()) {
+      try {
+        const [imgRes, actRes, catRes] = await Promise.all([
+          db.getSupabase().from('images').select('id', { count: 'exact', head: true }),
+          db.getSupabase().from('actresses').select('id', { count: 'exact', head: true }),
+          db.getSupabase().from('categories').select('id', { count: 'exact', head: true }),
+        ]);
+        supabaseTables = {
+          images: imgRes.count ?? (imgRes.error ? `Error: ${imgRes.error.message}` : 0),
+          actresses: actRes.count ?? (actRes.error ? `Error: ${actRes.error.message}` : 0),
+          categories: catRes.count ?? (catRes.error ? `Error: ${catRes.error.message}` : 0),
+        };
+      } catch (err) {
+        errorMsg = err.message;
+      }
+    }
+
+    res.json({
+      success: true,
+      isSupabase,
+      clientReady,
+      detectedEnvVars: {
+        SUPABASE_URL: Boolean(process.env.SUPABASE_URL || process.env.SUPABASE_PROJECT_URL || process.env.PROJECT_URL || process.env.NEXT_PUBLIC_SUPABASE_URL),
+        SUPABASE_KEY: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || process.env.SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY),
+      },
+      supabaseTables,
+      error: errorMsg,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+
 // ─── GET /api/admin/settings ─────────────────────────────────────────────────
 router.get('/settings', requireAuth, async (req, res) => {
   try {
