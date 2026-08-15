@@ -42,22 +42,28 @@ app.use(security(HTTPS_ENABLED));
 // ─── CORS ────────────────────────────────────────────────────────────────────
 app.use(cors({
   origin: (origin, callback) => {
-    const allowed = [
-      `https://localhost:${HTTPS_PORT}`,
-      `http://localhost:${PORT}`,
-      `http://localhost`,
-      undefined, // same-origin / direct requests have no Origin header
-    ];
-    if (!origin || allowed.includes(origin)) {
+    // Allow same-origin, direct requests, or server-to-server requests without Origin header
+    if (!origin) return callback(null, true);
+
+    const allowedList = (process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
+    if (process.env.URL) allowedList.push(process.env.URL);
+    if (process.env.DEPLOY_PRIME_URL) allowedList.push(process.env.DEPLOY_PRIME_URL);
+
+    const isLocalhost = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+    const isNetlify   = /\.netlify\.app$/.test(origin);
+    const isAllowed   = allowedList.includes(origin);
+
+    if (isLocalhost || isNetlify || isAllowed) {
       callback(null, true);
     } else {
-      callback(new Error('CORS policy: cross-origin requests not allowed'));
+      callback(new Error(`CORS policy: origin ${origin} not allowed`));
     }
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
+
 
 // ─── Body parsers ─────────────────────────────────────────────────────────────
 app.use(express.json({ limit: '1mb' }));
