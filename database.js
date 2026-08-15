@@ -425,11 +425,12 @@ async function revokeToken(jti, expiresAt) {
 
 async function isTokenRevoked(jti) {
   if (IS_SUPABASE) {
-    const { data } = await getSupabase().from('revoked_tokens').select('id').eq('jti', jti).single();
+    const { data } = await getSupabase().from('revoked_tokens').select('id').eq('jti', jti).maybeSingle();
     return Boolean(data);
   }
   return Boolean(sqliteGet('SELECT id FROM revoked_tokens WHERE jti=?', [jti]));
 }
+
 
 async function getStats() {
   if (IS_SUPABASE) {

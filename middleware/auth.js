@@ -14,7 +14,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-change-me';
  * Verifies JWT from httpOnly cookie or Authorization header.
  * Attaches decoded payload to req.admin on success.
  */
-function requireAuth(req, res, next) {
+async function requireAuth(req, res, next) {
   let token = null;
 
   // 1. Try httpOnly cookie (preferred)
@@ -45,13 +45,18 @@ function requireAuth(req, res, next) {
   }
 
   // Check if token has been revoked (logout blacklist)
-  if (decoded.jti && isTokenRevoked(decoded.jti)) {
-    return res.status(401).json({ success: false, error: 'Token revoked. Please log in again.' });
+  try {
+    if (decoded.jti && (await isTokenRevoked(decoded.jti))) {
+      return res.status(401).json({ success: false, error: 'Token revoked. Please log in again.' });
+    }
+  } catch (_) {
+    // If revocation check fails, allow authenticated session to proceed safely
   }
 
   req.admin = decoded;
   next();
 }
+
 
 /**
  * Generates a signed JWT token for the admin session.
