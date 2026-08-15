@@ -53,11 +53,61 @@
   }
 
   async function apiForm(url, formData, method = 'POST') {
-    const res = await fetch(url, { method, body: formData, credentials: 'include' });
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
-    return json;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 45000);
+    try {
+      const res = await fetch(url, { method, body: formData, credentials: 'include', signal: controller.signal });
+      clearTimeout(timer);
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+      return json;
+    } catch (err) {
+      clearTimeout(timer);
+      if (err.name === 'AbortError') throw new Error('Upload timed out. Please try uploading smaller images.');
+      throw err;
+    }
   }
+
+  function compressImage(file, maxDimension = 1920, quality = 0.82) {
+    return new Promise((resolve) => {
+      if (!file || file.size < 350 * 1024) return resolve(file);
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        let { width, height } = img;
+        if (width > maxDimension || height > maxDimension) {
+          if (width > height) {
+            height = Math.round((height * maxDimension) / width);
+            width = maxDimension;
+          } else {
+            width = Math.round((width * maxDimension) / height);
+            height = maxDimension;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        canvas.toBlob(
+          (blob) => {
+            if (!blob || blob.size >= file.size) return resolve(file);
+            const compressedFile = new File([blob], file.name.replace(/\.[^/.]+$/, '.jpg'), {
+              type: 'image/jpeg',
+              lastModified: Date.now(),
+            });
+            resolve(compressedFile);
+          },
+          'image/jpeg',
+          quality
+        );
+      };
+      img.onerror = () => resolve(file);
+      img.src = url;
+    });
+  }
+
 
   // ─── Modal helpers ────────────────────────────────────────────────────────
   function openModal(id) {
@@ -525,25 +575,28 @@
       setLoading('upload-submit', true);
       $('upload-progress-wrap').style.display = '';
       $('upload-progress-fill').style.width   = '5%';
-      $('upload-progress-label').textContent  = `Uploading ${carousel.files.length} image(s)…`;
-
-      const fd = new FormData();
-      carousel.files.forEach(f => fd.append('images', f));
-      fd.append('captions_json', JSON.stringify(carousel.captions));
-
-      const actressId  = $('upload-actress')?.value  || '';
-      const categoryId = $('upload-category')?.value || '';
-      if (actressId)  fd.append('actress_id',  actressId);
-      if (categoryId) fd.append('category_id', categoryId);
-
-      // Simulated progress (real XHR progress needs XMLHttpRequest)
-      let fakeProgress = 5;
-      const progressTimer = setInterval(() => {
-        fakeProgress = Math.min(fakeProgress + 8, 85);
-        $('upload-progress-fill').style.width = `${fakeProgress}%`;
-      }, 200);
+      $('upload-progress-label').textContent  = `Optimizing ${carousel.files.length} image(s)…`;
 
       try {
+        const compressedFiles = await Promise.all(carousel.files.map(f => compressImage(f)));
+        $('upload-progress-fill').style.width   = '20%';
+        $('upload-progress-label').textContent  = `Uploading ${compressedFiles.length} image(s)…`;
+
+        const fd = new FormData();
+        compressedFiles.forEach(f => fd.append('images', f));
+        fd.append('captions_json', JSON.stringify(carousel.captions));
+
+        const actressId  = $('upload-actress')?.value  || '';
+        const categoryId = $('upload-category')?.value || '';
+        if (actressId)  fd.append('actress_id',  actressId);
+        if (categoryId) fd.append('category_id', categoryId);
+
+        let fakeProgress = 20;
+        const progressTimer = setInterval(() => {
+          fakeProgress = Math.min(fakeProgress + 8, 85);
+          $('upload-progress-fill').style.width = `${fakeProgress}%`;
+        }, 200);
+
         const json = await apiForm('/api/admin/images', fd);
         clearInterval(progressTimer);
         $('upload-progress-fill').style.width  = '100%';
@@ -552,11 +605,12 @@
         setTimeout(() => {
           closeModal('upload-modal');
           toast(json.message, json.failed?.length ? 'info' : 'success');
+          resetCarousel();
+          setLoading('upload-submit', false);
           loadImages();
           loadStats();
         }, 600);
       } catch (err) {
-        clearInterval(progressTimer);
         const fill = $('upload-progress-fill');
         if (fill) { fill.style.width = '100%'; fill.style.background = 'var(--danger)'; }
         const label = $('upload-progress-label');
@@ -566,6 +620,7 @@
       }
     });
   }
+
 
   // ═══════════════════════════════════════════════════════════════════
   //  ACTRESSES
