@@ -246,11 +246,19 @@ router.get('/images', requireAuth, async (req, res) => {
       db.getImages({ page, limit }),
       db.getImageCount(),
     ]);
-    res.json({ success: true, data: images.map(img => ({ ...img, url: `/uploads/${img.filename}` })), total });
+    res.json({
+      success: true,
+      data: images.map(img => ({
+        ...img,
+        url: img.filename?.startsWith('data:') ? img.filename : `/uploads/${img.filename}`
+      })),
+      total
+    });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Failed to fetch images' });
   }
 });
+
 
 // PUT /api/admin/images/:id
 router.put(

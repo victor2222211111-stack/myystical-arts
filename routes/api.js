@@ -83,7 +83,7 @@ router.get(
 
       const data = images.map(img => ({
         id: img.id,
-        url: `/uploads/${img.filename}`,
+        url: img.filename?.startsWith('data:') ? img.filename : `/uploads/${img.filename}`,
         caption: img.caption,
         actress: {
           id: img.actress_id,
@@ -98,6 +98,7 @@ router.get(
         sort_order: img.sort_order,
         created_at: img.created_at,
       }));
+
 
       res.json({
         success: true,

@@ -1,8 +1,8 @@
 /**
  * database.js
  * Dual Database Adapter:
- * 1. Supabase PostgreSQL (Production / Vercel Serverless when SUPABASE_URL is set)
- * 2. SQLite via sql.js (Local development fallback)
+ * 1. Supabase PostgreSQL & Cloud Storage (Production when SUPABASE_URL is set)
+ * 2. In-Memory & SQLite (Local development / Serverless fallback)
  */
 
 'use strict';
@@ -30,7 +30,7 @@ const defaultCategories = [
   { id: 5, name: 'Events',    slug: 'events',    description: 'Award shows & public events',        sort_order: 4 },
 ];
 
-// In-memory fallback cache for settings, images, actresses, and categories
+// In-memory persistent cache across serverless requests
 const memorySettings = {
   site_name:        process.env.SITE_NAME     || 'Myystical_arts',
   site_tagline:     process.env.SITE_TAGLINE  || 'Curated Indian Celebrity Gallery',
@@ -42,15 +42,13 @@ const memoryCategories = [...defaultCategories];
 const memoryActresses  = [];
 const memoryImages     = [];
 
-// ─── Persistence (SQLite local fallback only) ──────────────────────────────────
+// ─── Persistence ───────────────────────────────────────────────────────────────
 function save() {
   if (!db || IS_SUPABASE) return;
   try {
     const data = db.export();
     fs.writeFileSync(DB_PATH, Buffer.from(data));
-  } catch (err) {
-    // Ignore read-only filesystem errors in serverless environments
-  }
+  } catch (err) {}
 }
 
 if (!IS_SUPABASE) {
@@ -69,7 +67,7 @@ async function init() {
         });
         console.log('⚡ Initialised Supabase Client');
       } catch (err) {
-        console.warn('Supabase client init warning:', err.message);
+        console.warn('Supabase init warning:', err.message);
       }
     }
     return;
@@ -94,7 +92,6 @@ async function init() {
     db.run('PRAGMA journal_mode = DELETE;');
     initSqliteSchema();
   } catch (err) {
-    console.warn('SQLite init warning:', err.message);
     if (!db && SQL) db = new SQL.Database();
   }
 }
@@ -119,7 +116,7 @@ async function ensureReady() {
   } catch (_) {}
 }
 
-// ─── SQLite Local Schema & Helpers ─────────────────────────────────────────────
+// ─── SQLite Helpers ────────────────────────────────────────────────────────────
 function initSqliteSchema() {
   if (!db) return;
   try {
@@ -140,7 +137,6 @@ function initSqliteSchema() {
         key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT DEFAULT (datetime('now'))
       );
     `);
-    // Seed default categories in SQLite if empty
     const count = sqliteGet('SELECT COUNT(*) AS n FROM categories')?.n || 0;
     if (count === 0) {
       for (const cat of defaultCategories) {
@@ -191,47 +187,74 @@ function sqliteRun(sql, params = []) {
   }
 }
 
-// ─── Unified Database API ──────────────────────────────────────────────────────
+// ─── Unified Database API (Merging In-Memory + Supabase + SQLite) ─────────────
 
 async function getCategories() {
   await ensureReady();
+  let list = [];
   if (IS_SUPABASE && getSupabase()) {
     try {
       const { data, error } = await getSupabase().from('categories').select('*').order('sort_order', { ascending: true }).order('name', { ascending: true });
-      if (!error && data && data.length > 0) return data;
+      if (!error && data && data.length > 0) list = data;
     } catch (_) {}
   }
-  const rows = sqliteAll('SELECT * FROM categories ORDER BY sort_order, name');
-  return rows.length > 0 ? rows : memoryCategories;
+  if (!list.length) {
+    list = sqliteAll('SELECT * FROM categories ORDER BY sort_order, name');
+  }
+
+  // Merge memoryCategories
+  const existingIds = new Set(list.map(c => String(c.id)));
+  for (const mc of memoryCategories) {
+    if (!existingIds.has(String(mc.id))) list.push(mc);
+  }
+  return list.length > 0 ? list : defaultCategories;
 }
 
 async function getActresses() {
   await ensureReady();
+  let list = [];
   if (IS_SUPABASE && getSupabase()) {
     try {
       const { data, error } = await getSupabase().from('actresses').select('*').or('is_active.eq.1,is_active.is.null').order('sort_order', { ascending: true }).order('name', { ascending: true });
-      if (!error && data && data.length > 0) return data;
+      if (!error && data && data.length > 0) list = data;
     } catch (_) {}
   }
-  const rows = sqliteAll('SELECT * FROM actresses WHERE is_active = 1 OR is_active IS NULL ORDER BY sort_order, name');
-  return rows.length > 0 ? rows : memoryActresses.filter(a => a.is_active !== 0);
+  if (!list.length) {
+    list = sqliteAll('SELECT * FROM actresses WHERE is_active = 1 OR is_active IS NULL ORDER BY sort_order, name');
+  }
+
+  // Merge memoryActresses
+  const existingIds = new Set(list.map(a => String(a.id)));
+  for (const ma of memoryActresses) {
+    if (!existingIds.has(String(ma.id)) && ma.is_active !== 0) list.push(ma);
+  }
+  return list;
 }
 
 async function getActressesAll() {
   await ensureReady();
+  let list = [];
   if (IS_SUPABASE && getSupabase()) {
     try {
       const { data, error } = await getSupabase().from('actresses').select('*').order('sort_order', { ascending: true }).order('name', { ascending: true });
-      if (!error && data && data.length > 0) return data;
+      if (!error && data && data.length > 0) list = data;
     } catch (_) {}
   }
-  const rows = sqliteAll('SELECT * FROM actresses ORDER BY sort_order, name');
-  return rows.length > 0 ? rows : memoryActresses;
+  if (!list.length) {
+    list = sqliteAll('SELECT * FROM actresses ORDER BY sort_order, name');
+  }
+
+  const existingIds = new Set(list.map(a => String(a.id)));
+  for (const ma of memoryActresses) {
+    if (!existingIds.has(String(ma.id))) list.push(ma);
+  }
+  return list;
 }
 
 async function getImages({ actress_id, category_id, page = 1, limit = 30 } = {}) {
   await ensureReady();
   const offset = (page - 1) * limit;
+  let allList = [];
 
   if (IS_SUPABASE && getSupabase()) {
     try {
@@ -241,102 +264,66 @@ async function getImages({ actress_id, category_id, page = 1, limit = 30 } = {})
 
       const { data: rawImages, error } = await query
         .order('sort_order', { ascending: false })
-        .order('created_at', { ascending: false })
-        .range(offset, offset + limit - 1);
+        .order('created_at', { ascending: false });
 
-      if (!error && rawImages) {
-        const [actresses, categories] = await Promise.all([
-          getActressesAll(),
-          getCategories(),
-        ]);
-        const actMap = Object.fromEntries(actresses.map(a => [a.id, a]));
-        const catMap = Object.fromEntries(categories.map(c => [c.id, c]));
-
-        return rawImages.map(img => ({
-          ...img,
-          actress_name:  actMap[img.actress_id]?.name   || null,
-          actress_slug:  actMap[img.actress_id]?.slug   || null,
-          category_name: catMap[img.category_id]?.name  || null,
-          category_slug: catMap[img.category_id]?.slug  || null,
-        }));
+      if (!error && rawImages && rawImages.length > 0) {
+        allList = rawImages;
       }
     } catch (_) {}
   }
 
-  let query = `
-    SELECT i.*, a.name AS actress_name, a.slug AS actress_slug,
-           c.name AS category_name, c.slug AS category_slug
-    FROM images i
-    LEFT JOIN actresses a ON i.actress_id = a.id
-    LEFT JOIN categories c ON i.category_id = c.id
-    WHERE i.is_active = 1 OR i.is_active IS NULL
-  `;
-  const params = [];
-  if (actress_id)  { query += ' AND i.actress_id = ?';  params.push(actress_id);  }
-  if (category_id) { query += ' AND i.category_id = ?'; params.push(category_id); }
-  query += ' ORDER BY i.sort_order DESC, i.created_at DESC LIMIT ? OFFSET ?';
-  params.push(limit, offset);
-  const rows = sqliteAll(query, params);
-  if (rows.length > 0) return rows;
+  if (!allList.length) {
+    const rows = sqliteAll('SELECT * FROM images WHERE (is_active = 1 OR is_active IS NULL) ORDER BY sort_order DESC, created_at DESC');
+    allList = rows.length > 0 ? rows : [...memoryImages];
+  } else {
+    const existingIds = new Set(allList.map(i => String(i.id)));
+    for (const memImg of memoryImages) {
+      if (!existingIds.has(String(memImg.id))) {
+        allList.unshift(memImg);
+      }
+    }
+  }
 
-  // In-memory fallback filter
-  let filtered = [...memoryImages];
+  let filtered = allList;
   if (actress_id)  filtered = filtered.filter(img => img.actress_id == actress_id);
   if (category_id) filtered = filtered.filter(img => img.category_id == category_id);
-  return filtered.slice(offset, offset + limit);
+
+  const [actresses, categories] = await Promise.all([
+    getActressesAll(),
+    getCategories(),
+  ]);
+  const actMap = Object.fromEntries(actresses.map(a => [a.id, a]));
+  const catMap = Object.fromEntries(categories.map(c => [c.id, c]));
+
+  const result = filtered.map(img => ({
+    ...img,
+    actress_name:  img.actress_name  || actMap[img.actress_id]?.name   || null,
+    actress_slug:  img.actress_slug  || actMap[img.actress_id]?.slug   || null,
+    category_name: img.category_name || catMap[img.category_id]?.name  || null,
+    category_slug: img.category_slug || catMap[img.category_id]?.slug  || null,
+  }));
+
+  return result.slice(offset, offset + limit);
 }
 
 async function getImageCount({ actress_id, category_id } = {}) {
-  await ensureReady();
-  if (IS_SUPABASE && getSupabase()) {
-    try {
-      let query = getSupabase().from('images').select('*', { count: 'exact', head: true }).or('is_active.eq.1,is_active.is.null');
-      if (actress_id)  query = query.eq('actress_id',  actress_id);
-      if (category_id) query = query.eq('category_id', category_id);
-      const { count, error } = await query;
-      if (!error && count !== null) return count;
-    } catch (_) {}
-  }
-  let query = 'SELECT COUNT(*) AS n FROM images WHERE (is_active = 1 OR is_active IS NULL)';
-  const params = [];
-  if (actress_id)  { query += ' AND actress_id = ?';  params.push(actress_id);  }
-  if (category_id) { query += ' AND category_id = ?'; params.push(category_id); }
-  const count = sqliteGet(query, params)?.n;
-  if (count !== undefined && count !== null && count > 0) return count;
-  return memoryImages.length;
+  const images = await getImages({ actress_id, category_id, page: 1, limit: 10000 });
+  return images.length;
 }
 
 async function getImageById(id) {
-  await ensureReady();
-  if (IS_SUPABASE && getSupabase()) {
-    try {
-      const { data } = await getSupabase().from('images').select('*').eq('id', id).single();
-      if (data) return data;
-    } catch (_) {}
-  }
-  return sqliteGet('SELECT * FROM images WHERE id = ?', [id]) || memoryImages.find(i => i.id == id) || null;
+  const images = await getImages({ page: 1, limit: 10000 });
+  return images.find(i => i.id == id) || null;
 }
 
 async function getActressById(id) {
-  await ensureReady();
-  if (IS_SUPABASE && getSupabase()) {
-    try {
-      const { data } = await getSupabase().from('actresses').select('*').eq('id', id).single();
-      if (data) return data;
-    } catch (_) {}
-  }
-  return sqliteGet('SELECT * FROM actresses WHERE id = ?', [id]) || memoryActresses.find(a => a.id == id) || null;
+  const actresses = await getActressesAll();
+  return actresses.find(a => a.id == id) || null;
 }
 
 async function getCategoryById(id) {
-  await ensureReady();
-  if (IS_SUPABASE && getSupabase()) {
-    try {
-      const { data } = await getSupabase().from('categories').select('*').eq('id', id).single();
-      if (data) return data;
-    } catch (_) {}
-  }
-  return sqliteGet('SELECT * FROM categories WHERE id = ?', [id]) || memoryCategories.find(c => c.id == id) || null;
+  const categories = await getCategories();
+  return categories.find(c => c.id == id) || null;
 }
 
 async function insertImage(data) {
@@ -386,9 +373,7 @@ async function insertImage(data) {
 async function updateImage(id, data) {
   await ensureReady();
   const idx = memoryImages.findIndex(i => i.id == id);
-  if (idx !== -1) {
-    memoryImages[idx] = { ...memoryImages[idx], ...data };
-  }
+  if (idx !== -1) memoryImages[idx] = { ...memoryImages[idx], ...data };
 
   if (IS_SUPABASE && getSupabase()) {
     try {
@@ -457,9 +442,7 @@ async function insertActress(data) {
 async function updateActress(id, data) {
   await ensureReady();
   const idx = memoryActresses.findIndex(a => a.id == id);
-  if (idx !== -1) {
-    memoryActresses[idx] = { ...memoryActresses[idx], ...data };
-  }
+  if (idx !== -1) memoryActresses[idx] = { ...memoryActresses[idx], ...data };
 
   if (IS_SUPABASE && getSupabase()) {
     try {
@@ -525,9 +508,7 @@ async function insertCategory(data) {
 async function updateCategory(id, data) {
   await ensureReady();
   const idx = memoryCategories.findIndex(c => c.id == id);
-  if (idx !== -1) {
-    memoryCategories[idx] = { ...memoryCategories[idx], ...data };
-  }
+  if (idx !== -1) memoryCategories[idx] = { ...memoryCategories[idx], ...data };
 
   if (IS_SUPABASE && getSupabase()) {
     try {
@@ -626,7 +607,7 @@ async function isTokenRevoked(jti) {
 async function getStats() {
   await ensureReady();
   const [images, actresses, categories] = await Promise.all([
-    getImages({ page: 1, limit: 1000 }),
+    getImages({ page: 1, limit: 10000 }),
     getActressesAll(),
     getCategories(),
   ]);
@@ -672,7 +653,8 @@ async function uploadFileToStorage(fileBuffer, originalFilename, mimeType) {
       if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
       fs.writeFileSync(path.join(UPLOADS_DIR, filename), fileBuffer);
     } catch (err) {
-      console.warn('Local storage write warning (read-only filesystem):', err.message);
+      // Fallback: store as data URL if filesystem is read-only
+      return `data:${mimeType || 'image/jpeg'};base64,${fileBuffer.toString('base64')}`;
     }
   }
 
@@ -681,6 +663,8 @@ async function uploadFileToStorage(fileBuffer, originalFilename, mimeType) {
 
 async function getFileFromStorage(filename) {
   await ensureReady();
+  if (filename && filename.startsWith('data:')) return filename;
+
   if (IS_SUPABASE && getSupabase()) {
     try {
       const { data } = getSupabase().storage.from('gallery-uploads').getPublicUrl(filename);
