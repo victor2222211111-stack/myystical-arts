@@ -73,18 +73,25 @@ app.use(cookieParser());
 // ─── Uploads: serve images inline with anti-download headers ─────────────────
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
-app.use('/uploads', antiDownloadHeaders, (req, res, next) => {
-  // Validate filename — allow only safe characters
+app.use('/uploads', antiDownloadHeaders, async (req, res, next) => {
   const filename = path.basename(req.path);
   if (!/^[\w\-\.]+$/.test(filename)) {
     return res.status(400).json({ success: false, error: 'Invalid filename' });
   }
-  const filePath = path.join(UPLOADS_DIR, filename);
-  if (!fs.existsSync(filePath)) {
-    return res.status(404).json({ success: false, error: 'File not found' });
+  try {
+    const fileSource = await db.getFileFromStorage(filename);
+    if (fileSource && typeof fileSource === 'string' && fileSource.startsWith('http')) {
+      return res.redirect(302, fileSource);
+    }
+    if (fileSource && fs.existsSync(fileSource)) {
+      return res.sendFile(fileSource);
+    }
+  } catch (err) {
+    console.error('File storage fetch error:', err.message);
   }
-  res.sendFile(filePath);
+  return res.status(404).json({ success: false, error: 'File not found' });
 });
+
 
 // ─── API Routes ───────────────────────────────────────────────────────────────
 // IMPORTANT: /api/admin must be mounted BEFORE /api — express matches

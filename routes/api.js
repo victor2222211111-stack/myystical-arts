@@ -22,9 +22,9 @@ function validate(req, res) {
 }
 
 // ─── GET /api/settings ────────────────────────────────────────────────────────
-router.get('/settings', (req, res) => {
+router.get('/settings', async (req, res) => {
   try {
-    const settings = db.getAllSettings();
+    const settings = await db.getAllSettings();
     res.json({ success: true, data: settings });
   } catch (err) {
     console.error('GET /api/settings error:', err);
@@ -33,9 +33,9 @@ router.get('/settings', (req, res) => {
 });
 
 // ─── GET /api/categories ──────────────────────────────────────────────────────
-router.get('/categories', (req, res) => {
+router.get('/categories', async (req, res) => {
   try {
-    const categories = db.getCategories();
+    const categories = await db.getCategories();
     res.json({ success: true, data: categories });
   } catch (err) {
     console.error('GET /api/categories error:', err);
@@ -44,10 +44,9 @@ router.get('/categories', (req, res) => {
 });
 
 // ─── GET /api/actresses ───────────────────────────────────────────────────────
-router.get('/actresses', (req, res) => {
+router.get('/actresses', async (req, res) => {
   try {
-    const actresses = db.getActresses();
-    // Map face filename to URL
+    const actresses = await db.getActresses();
     const data = actresses.map(a => ({
       ...a,
       face_url: a.face_filename ? `/uploads/${a.face_filename}` : null,
@@ -68,7 +67,7 @@ router.get(
     query('page').optional({ values: 'falsy' }).isInt({ min: 1 }).toInt().default(1),
     query('limit').optional({ values: 'falsy' }).isInt({ min: 1, max: 60 }).toInt().default(30),
   ],
-  (req, res) => {
+  async (req, res) => {
     if (validate(req, res)) return;
 
     try {
@@ -77,8 +76,10 @@ router.get(
       const page        = parseInt(req.query.page  || '1',  10);
       const limit       = parseInt(req.query.limit || '30', 10);
 
-      const images = db.getImages({ actress_id, category_id, page, limit });
-      const total  = db.getImageCount({ actress_id, category_id });
+      const [images, total] = await Promise.all([
+        db.getImages({ actress_id, category_id, page, limit }),
+        db.getImageCount({ actress_id, category_id }),
+      ]);
 
       const data = images.map(img => ({
         id: img.id,
@@ -115,5 +116,6 @@ router.get(
     }
   }
 );
+
 
 module.exports = router;

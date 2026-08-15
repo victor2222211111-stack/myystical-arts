@@ -1,7 +1,7 @@
 /**
  * routes/admin.js
  * Protected admin API routes: login, logout, CRUD for images/actresses/categories/settings.
- * All state-changing routes require JWT auth.
+ * All state-changing routes require JWT auth. Supports both Supabase Cloud Storage & Local Storage.
  */
 
 'use strict';
@@ -20,24 +20,12 @@ const { verifyCaptcha } = require('../middleware/captcha');
 const { loginLimiter, uploadLimiter } = require('../middleware/rateLimiter');
 const db = require('../database');
 
-const UPLOADS_DIR = path.join(__dirname, '..', 'uploads');
 const MAX_FILE_SIZE = (parseInt(process.env.MAX_FILE_SIZE_MB || '10', 10)) * 1024 * 1024;
 const ALLOWED_MIMES = (process.env.ALLOWED_MIME_TYPES || 'image/jpeg,image/png,image/webp').split(',');
-
-// ─── Multer storage ───────────────────────────────────────────────────────────
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-    cb(null, UPLOADS_DIR);
-  },
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
-    cb(null, `${crypto.randomUUID()}${ext}`);
-  },
-});
-
-
 const MAX_BATCH = 10;
+
+// Use memoryStorage for compatibility with serverless & cloud storage
+const storage = multer.memoryStorage();
 
 const upload = multer({
   storage,
@@ -72,7 +60,7 @@ function validate(req, res) {
   return false;
 }
 
-/** Sanitize string — strip HTML entities */
+/** Sanitize string — strip HTML tags */
 function sanitize(str = '') {
   return String(str)
     .replace(/</g, '&lt;')
@@ -82,10 +70,6 @@ function sanitize(str = '') {
     .trim();
 }
 
-/**
- * Parse an optional integer field that may arrive as empty string from forms.
- * Returns null for empty/missing, integer for valid values, or undefined to fail.
- */
 function optionalInt(value) {
   if (value === undefined || value === null || value === '') return null;
   const n = parseInt(value, 10);
@@ -98,13 +82,8 @@ router.post(
   '/login',
   loginLimiter,
   [
-    body('username')
-      .trim()
-      .notEmpty().withMessage('Username is required')
-      .isLength({ max: 64 }).withMessage('Username too long'),
-    body('password')
-      .notEmpty().withMessage('Password is required')
-      .isLength({ max: 256 }).withMessage('Password too long'),
+    body('username').trim().notEmpty().withMessage('Username is required').isLength({ max: 64 }),
+    body('password').notEmpty().withMessage('Password is required').isLength({ max: 256 }),
   ],
   verifyCaptcha,
   async (req, res) => {
@@ -132,10 +111,10 @@ router.post(
 );
 
 // ─── POST /api/admin/logout ──────────────────────────────────────────────────
-router.post('/logout', requireAuth, (req, res) => {
+router.post('/logout', requireAuth, async (req, res) => {
   if (req.admin && req.admin.jti) {
     const exp = new Date(req.admin.exp * 1000).toISOString();
-    db.revokeToken(req.admin.jti, exp);
+    await db.revokeToken(req.admin.jti, exp);
   }
   const httpsEnabled = process.env.HTTPS_ENABLED !== 'false';
   res.clearCookie('admin_token', { path: '/', httpOnly: true, secure: httpsEnabled, sameSite: httpsEnabled ? 'strict' : 'lax' });
@@ -148,17 +127,23 @@ router.get('/verify', requireAuth, (req, res) => {
 });
 
 // ─── GET /api/admin/stats ────────────────────────────────────────────────────
-router.get('/stats', requireAuth, (req, res) => {
+router.get('/stats', requireAuth, async (req, res) => {
   try {
-    res.json({ success: true, data: db.getStats() });
+    const stats = await db.getStats();
+    res.json({ success: true, data: stats });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Failed to fetch stats' });
   }
 });
 
 // ─── GET /api/admin/settings ─────────────────────────────────────────────────
-router.get('/settings', requireAuth, (req, res) => {
-  res.json({ success: true, data: db.getAllSettings() });
+router.get('/settings', requireAuth, async (req, res) => {
+  try {
+    const settings = await db.getAllSettings();
+    res.json({ success: true, data: settings });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Failed to fetch settings' });
+  }
 });
 
 // ─── PUT /api/admin/settings ─────────────────────────────────────────────────
@@ -168,21 +153,21 @@ router.put(
   [
     body('site_name').optional({ values: 'falsy' }).trim().isLength({ max: 100 }),
     body('site_tagline').optional({ values: 'falsy' }).trim().isLength({ max: 200 }),
-    // instagram_url: accept any non-empty string (complex URLs with query params)
     body('instagram_url').optional({ values: 'falsy' }).trim().isLength({ max: 500 }),
     body('instagram_handle').optional({ values: 'falsy' }).trim().isLength({ max: 50 }),
   ],
-  (req, res) => {
+  async (req, res) => {
     if (validate(req, res)) return;
     const allowed = ['site_name', 'site_tagline', 'instagram_url', 'instagram_handle'];
     try {
       for (const key of allowed) {
         if (req.body[key] !== undefined && req.body[key] !== null) {
-          db.setSetting(key, sanitize(req.body[key]));
+          await db.setSetting(key, sanitize(req.body[key]));
         }
       }
       res.json({ success: true, message: 'Settings updated' });
     } catch (err) {
+      console.error('Update settings error:', err);
       res.status(500).json({ success: false, error: 'Failed to update settings' });
     }
   }
@@ -201,16 +186,14 @@ router.post(
   [
     body('actress_id').customSanitizer(optionalInt),
     body('category_id').customSanitizer(optionalInt),
-    // captions_json: JSON array of per-image captions sent from carousel
     body('captions_json').optional({ values: 'falsy' }).isLength({ max: 5000 }),
   ],
-  (req, res) => {
+  async (req, res) => {
     if (validate(req, res)) return;
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ success: false, error: 'No image files provided' });
     }
 
-    // Parse per-slide captions from carousel
     let captions = [];
     try {
       captions = req.body.captions_json ? JSON.parse(req.body.captions_json) : [];
@@ -223,10 +206,11 @@ router.post(
       const file    = req.files[i];
       const caption = sanitize(captions[i] || '');
       try {
-        const result = db.insertImage({
+        const storedFilename = await db.uploadFileToStorage(file.buffer, file.originalname, file.mimetype);
+        const result = await db.insertImage({
           actress_id:        req.body.actress_id  || null,
           category_id:       req.body.category_id || null,
-          filename:          file.filename,
+          filename:          storedFilename,
           original_filename: sanitize(file.originalname),
           caption,
           width:     0,
@@ -234,10 +218,9 @@ router.post(
           file_size: file.size,
           sort_order: i,
         });
-        created.push({ id: result.lastInsertRowid, url: `/uploads/${file.filename}`, caption });
+        created.push({ id: result.lastInsertRowid, url: `/uploads/${storedFilename}`, caption });
       } catch (err) {
-        console.error(`DB insert failed for file ${file.originalname}:`, err.message);
-        try { fs.unlinkSync(file.path); } catch (_) {}
+        console.error(`Upload failed for file ${file.originalname}:`, err.message);
         failed.push(file.originalname);
       }
     }
@@ -255,12 +238,14 @@ router.post(
 );
 
 // GET /api/admin/images
-router.get('/images', requireAuth, (req, res) => {
+router.get('/images', requireAuth, async (req, res) => {
   try {
     const page  = parseInt(req.query.page  || '1',  10);
     const limit = Math.min(parseInt(req.query.limit || '50', 10), 100);
-    const images = db.getImages({ page, limit });
-    const total  = db.getImageCount();
+    const [images, total] = await Promise.all([
+      db.getImages({ page, limit }),
+      db.getImageCount(),
+    ]);
     res.json({ success: true, data: images.map(img => ({ ...img, url: `/uploads/${img.filename}` })), total });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Failed to fetch images' });
@@ -278,13 +263,13 @@ router.put(
     body('caption').optional({ values: 'falsy' }).trim().isLength({ max: 500 }),
     body('sort_order').optional({ values: 'falsy' }).isInt({ min: 0 }).toInt(),
   ],
-  (req, res) => {
+  async (req, res) => {
     if (validate(req, res)) return;
     const { id } = req.params;
-    const img = db.getImageById(id);
+    const img = await db.getImageById(id);
     if (!img) return res.status(404).json({ success: false, error: 'Image not found' });
     try {
-      db.updateImage(id, {
+      await db.updateImage(id, {
         actress_id:  req.body.actress_id  ?? img.actress_id,
         category_id: req.body.category_id ?? img.category_id,
         caption:     sanitize(req.body.caption ?? img.caption),
@@ -298,14 +283,12 @@ router.put(
 );
 
 // DELETE /api/admin/images/:id
-router.delete('/images/:id', requireAuth, [param('id').isInt({ min: 1 }).toInt()], (req, res) => {
+router.delete('/images/:id', requireAuth, [param('id').isInt({ min: 1 }).toInt()], async (req, res) => {
   if (validate(req, res)) return;
-  const img = db.getImageById(req.params.id);
+  const img = await db.getImageById(req.params.id);
   if (!img) return res.status(404).json({ success: false, error: 'Image not found' });
   try {
-    db.deleteImage(req.params.id);
-    const filePath = path.join(UPLOADS_DIR, img.filename);
-    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    await db.deleteImage(req.params.id);
     res.json({ success: true, message: 'Image deleted' });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Failed to delete image' });
@@ -317,9 +300,9 @@ router.delete('/images/:id', requireAuth, [param('id').isInt({ min: 1 }).toInt()
 // ═══════════════════════════════════════════════════════════════
 
 // GET /api/admin/actresses
-router.get('/actresses', requireAuth, (req, res) => {
+router.get('/actresses', requireAuth, async (req, res) => {
   try {
-    const actresses = db.getActressesAll();
+    const actresses = await db.getActressesAll();
     res.json({ success: true, data: actresses.map(a => ({ ...a, face_url: a.face_filename ? `/uploads/${a.face_filename}` : null })) });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Failed to fetch actresses' });
@@ -334,19 +317,24 @@ router.post(
   [
     body('name').trim().notEmpty().withMessage('Name is required').isLength({ max: 100 }),
     body('bio').optional({ values: 'falsy' }).trim().isLength({ max: 1000 }),
-    // instagram_url: only validate if non-empty
     body('instagram_url').optional({ values: 'falsy' }).trim().isLength({ max: 500 }),
     body('sort_order').optional({ values: 'falsy' }).isInt({ min: 0 }).toInt(),
   ],
-  (req, res) => {
+  async (req, res) => {
     if (validate(req, res)) return;
     try {
       const name = sanitize(req.body.name);
       const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
-      const result = db.insertActress({
+      let faceFilename = null;
+
+      if (req.file) {
+        faceFilename = await db.uploadFileToStorage(req.file.buffer, req.file.originalname, req.file.mimetype);
+      }
+
+      const result = await db.insertActress({
         name,
         slug,
-        face_filename: req.file ? req.file.filename : null,
+        face_filename: faceFilename,
         bio:           sanitize(req.body.bio || ''),
         instagram_url: (req.body.instagram_url || '').trim(),
         sort_order:    parseInt(req.body.sort_order || '0', 10),
@@ -375,10 +363,10 @@ router.put(
     body('sort_order').optional({ values: 'falsy' }).isInt({ min: 0 }).toInt(),
     body('is_active').optional({ values: 'falsy' }).isBoolean().toBoolean(),
   ],
-  (req, res) => {
+  async (req, res) => {
     if (validate(req, res)) return;
     const { id } = req.params;
-    const actress = db.getActressById(id);
+    const actress = await db.getActressById(id);
     if (!actress) return res.status(404).json({ success: false, error: 'Actress not found' });
     try {
       const name = req.body.name ? sanitize(req.body.name) : actress.name;
@@ -386,14 +374,10 @@ router.put(
 
       let faceFilename = actress.face_filename;
       if (req.file) {
-        if (faceFilename) {
-          const oldPath = path.join(UPLOADS_DIR, faceFilename);
-          if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
-        }
-        faceFilename = req.file.filename;
+        faceFilename = await db.uploadFileToStorage(req.file.buffer, req.file.originalname, req.file.mimetype);
       }
 
-      db.updateActress(id, {
+      await db.updateActress(id, {
         name,
         slug,
         face_filename: faceFilename,
@@ -411,16 +395,12 @@ router.put(
 );
 
 // DELETE /api/admin/actresses/:id
-router.delete('/actresses/:id', requireAuth, [param('id').isInt({ min: 1 }).toInt()], (req, res) => {
+router.delete('/actresses/:id', requireAuth, [param('id').isInt({ min: 1 }).toInt()], async (req, res) => {
   if (validate(req, res)) return;
-  const actress = db.getActressById(req.params.id);
+  const actress = await db.getActressById(req.params.id);
   if (!actress) return res.status(404).json({ success: false, error: 'Actress not found' });
   try {
-    db.deleteActress(req.params.id);
-    if (actress.face_filename) {
-      const facePath = path.join(UPLOADS_DIR, actress.face_filename);
-      if (fs.existsSync(facePath)) fs.unlinkSync(facePath);
-    }
+    await db.deleteActress(req.params.id);
     res.json({ success: true, message: 'Actress deleted' });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Failed to delete actress' });
@@ -440,12 +420,12 @@ router.post(
     body('description').optional({ values: 'falsy' }).trim().isLength({ max: 500 }),
     body('sort_order').optional({ values: 'falsy' }).isInt({ min: 0 }).toInt(),
   ],
-  (req, res) => {
+  async (req, res) => {
     if (validate(req, res)) return;
     try {
       const name = sanitize(req.body.name);
       const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
-      const result = db.insertCategory({
+      const result = await db.insertCategory({
         name,
         slug,
         description: sanitize(req.body.description || ''),
@@ -471,15 +451,15 @@ router.put(
     body('description').optional({ values: 'falsy' }).trim().isLength({ max: 500 }),
     body('sort_order').optional({ values: 'falsy' }).isInt({ min: 0 }).toInt(),
   ],
-  (req, res) => {
+  async (req, res) => {
     if (validate(req, res)) return;
     const { id } = req.params;
-    const cat = db.getCategoryById(id);
+    const cat = await db.getCategoryById(id);
     if (!cat) return res.status(404).json({ success: false, error: 'Category not found' });
     try {
       const name = req.body.name ? sanitize(req.body.name) : cat.name;
       const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
-      db.updateCategory(id, {
+      await db.updateCategory(id, {
         name,
         slug,
         description: sanitize(req.body.description ?? cat.description),
@@ -493,12 +473,12 @@ router.put(
 );
 
 // DELETE /api/admin/categories/:id
-router.delete('/categories/:id', requireAuth, [param('id').isInt({ min: 1 }).toInt()], (req, res) => {
+router.delete('/categories/:id', requireAuth, [param('id').isInt({ min: 1 }).toInt()], async (req, res) => {
   if (validate(req, res)) return;
-  const cat = db.getCategoryById(req.params.id);
+  const cat = await db.getCategoryById(req.params.id);
   if (!cat) return res.status(404).json({ success: false, error: 'Category not found' });
   try {
-    db.deleteCategory(req.params.id);
+    await db.deleteCategory(req.params.id);
     res.json({ success: true, message: 'Category deleted' });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Failed to delete category' });
