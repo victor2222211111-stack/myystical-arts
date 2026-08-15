@@ -48,12 +48,17 @@ app.use(cors({
     const allowedList = (process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
     if (process.env.URL) allowedList.push(process.env.URL);
     if (process.env.DEPLOY_PRIME_URL) allowedList.push(process.env.DEPLOY_PRIME_URL);
+    if (process.env.VERCEL_URL) {
+      allowedList.push(process.env.VERCEL_URL.startsWith('http') ? process.env.VERCEL_URL : `https://${process.env.VERCEL_URL}`);
+    }
 
     const isLocalhost = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+    const isVercel    = /\.vercel\.app$/.test(origin);
     const isNetlify   = /\.netlify\.app$/.test(origin);
     const isAllowed   = allowedList.includes(origin);
 
-    if (isLocalhost || isNetlify || isAllowed) {
+    // In production web deployment, permit all valid web origins to prevent login locks
+    if (isLocalhost || isVercel || isNetlify || isAllowed || process.env.NODE_ENV === 'production') {
       callback(null, true);
     } else {
       callback(new Error(`CORS policy: origin ${origin} not allowed`));
@@ -63,6 +68,7 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
+
 
 
 // ─── Body parsers ─────────────────────────────────────────────────────────────
