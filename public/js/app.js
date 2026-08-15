@@ -216,10 +216,12 @@
       const res = await fetch('/api/actresses');
       if (!res.ok) return;
       const { data } = await res.json();
-      state.actresses = data;
-      renderActressSidebar(data);
+      state.actresses = data || [];
+      renderActressSidebar(state.actresses);
+      buildActressStrip();
     } catch (_) {}
   }
+
 
   function renderActressSidebar(actresses) {
     if (!actressSidebar) return;

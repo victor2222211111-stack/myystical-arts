@@ -188,11 +188,11 @@ async function getActresses() {
   await ensureReady();
   if (IS_SUPABASE && getSupabase()) {
     try {
-      const { data, error } = await getSupabase().from('actresses').select('*').eq('is_active', 1).order('sort_order', { ascending: true }).order('name', { ascending: true });
+      const { data, error } = await getSupabase().from('actresses').select('*').or('is_active.eq.1,is_active.is.null').order('sort_order', { ascending: true }).order('name', { ascending: true });
       if (!error && data) return data;
     } catch (_) {}
   }
-  return sqliteAll('SELECT * FROM actresses WHERE is_active = 1 ORDER BY sort_order, name');
+  return sqliteAll('SELECT * FROM actresses WHERE is_active = 1 OR is_active IS NULL ORDER BY sort_order, name');
 }
 
 async function getActressesAll() {
@@ -215,7 +215,7 @@ async function getImages({ actress_id, category_id, page = 1, limit = 30 } = {})
       let query = getSupabase()
         .from('images')
         .select('*, actresses(name, slug), categories(name, slug)')
-        .eq('is_active', 1);
+        .or('is_active.eq.1,is_active.is.null');
 
       if (actress_id)  query = query.eq('actress_id',  actress_id);
       if (category_id) query = query.eq('category_id', category_id);
@@ -243,8 +243,9 @@ async function getImages({ actress_id, category_id, page = 1, limit = 30 } = {})
     FROM images i
     LEFT JOIN actresses a ON i.actress_id = a.id
     LEFT JOIN categories c ON i.category_id = c.id
-    WHERE i.is_active = 1
+    WHERE i.is_active = 1 OR i.is_active IS NULL
   `;
+
   const params = [];
   if (actress_id)  { query += ' AND i.actress_id = ?';  params.push(actress_id);  }
   if (category_id) { query += ' AND i.category_id = ?'; params.push(category_id); }
@@ -257,19 +258,20 @@ async function getImageCount({ actress_id, category_id } = {}) {
   await ensureReady();
   if (IS_SUPABASE && getSupabase()) {
     try {
-      let query = getSupabase().from('images').select('*', { count: 'exact', head: true }).eq('is_active', 1);
+      let query = getSupabase().from('images').select('*', { count: 'exact', head: true }).or('is_active.eq.1,is_active.is.null');
       if (actress_id)  query = query.eq('actress_id',  actress_id);
       if (category_id) query = query.eq('category_id', category_id);
       const { count, error } = await query;
       if (!error && count !== null) return count;
     } catch (_) {}
   }
-  let query = 'SELECT COUNT(*) AS n FROM images WHERE is_active = 1';
+  let query = 'SELECT COUNT(*) AS n FROM images WHERE (is_active = 1 OR is_active IS NULL)';
   const params = [];
   if (actress_id)  { query += ' AND actress_id = ?';  params.push(actress_id);  }
   if (category_id) { query += ' AND category_id = ?'; params.push(category_id); }
   return sqliteGet(query, params)?.n || 0;
 }
+
 
 async function getImageById(id) {
   await ensureReady();
@@ -318,12 +320,13 @@ async function insertImage(data) {
         height:            data.height || 0,
         file_size:         data.file_size || 0,
         sort_order:        data.sort_order || 0,
+        is_active:         1,
       }]).select('id').single();
       if (!error && res) return { lastInsertRowid: res.id };
     } catch (_) {}
   }
   return sqliteRun(
-    `INSERT INTO images (actress_id,category_id,filename,original_filename,caption,width,height,file_size,sort_order) VALUES (?,?,?,?,?,?,?,?,?)`,
+    `INSERT INTO images (actress_id,category_id,filename,original_filename,caption,width,height,file_size,sort_order,is_active) VALUES (?,?,?,?,?,?,?,?,?,1)`,
     [data.actress_id||null, data.category_id||null, data.filename, data.original_filename, data.caption||'', data.width||0, data.height||0, data.file_size||0, data.sort_order||0]
   );
 }
@@ -364,15 +367,17 @@ async function insertActress(data) {
         bio:           data.bio || '',
         instagram_url: data.instagram_url || '',
         sort_order:    data.sort_order || 0,
+        is_active:     1,
       }]).select('id').single();
       if (!error && res) return { lastInsertRowid: res.id };
     } catch (_) {}
   }
   return sqliteRun(
-    'INSERT INTO actresses (name,slug,face_filename,bio,instagram_url,sort_order) VALUES (?,?,?,?,?,?)',
+    'INSERT INTO actresses (name,slug,face_filename,bio,instagram_url,sort_order,is_active) VALUES (?,?,?,?,?,?,1)',
     [data.name, data.slug, data.face_filename||null, data.bio||'', data.instagram_url||'', data.sort_order||0]
   );
 }
+
 
 async function updateActress(id, data) {
   await ensureReady();
