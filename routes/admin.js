@@ -87,8 +87,7 @@ router.post(
   ],
   verifyCaptcha,
   async (req, res) => {
-    if (validate(req, res)) return;
-
+    const { username, password } = req.body;
     const expectedUsername = process.env.ADMIN_USERNAME || 'myystical_admin';
     const passwordHash     = process.env.ADMIN_PASSWORD_HASH || '';
     const plainPassword    = process.env.ADMIN_PLAIN_PASWORD || process.env.ADMIN_PLAIN_PASSWORD || '';
@@ -108,11 +107,11 @@ router.post(
       return res.status(401).json({ success: false, error: 'Invalid credentials' });
     }
 
-
     const token = generateToken({ username });
     res.cookie('admin_token', token, cookieOptions());
     res.json({ success: true, message: 'Logged in successfully' });
   }
+
 );
 
 // ─── POST /api/admin/logout ──────────────────────────────────────────────────
