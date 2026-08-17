@@ -89,20 +89,25 @@ router.post(
   async (req, res) => {
     if (validate(req, res)) return;
 
-    const { username, password } = req.body;
     const expectedUsername = process.env.ADMIN_USERNAME || 'myystical_admin';
-    const passwordHash = process.env.ADMIN_PASSWORD_HASH || '';
+    const passwordHash     = process.env.ADMIN_PASSWORD_HASH || '';
+    const plainPassword    = process.env.ADMIN_PLAIN_PASWORD || process.env.ADMIN_PLAIN_PASSWORD || '';
 
     const usernameMatch = username === expectedUsername;
     let passwordMatch = false;
+
     if (passwordHash) {
       try { passwordMatch = await bcrypt.compare(password, passwordHash); } catch (_) {}
+    }
+    if (!passwordMatch && plainPassword) {
+      passwordMatch = (password === plainPassword);
     }
 
     if (!usernameMatch || !passwordMatch) {
       await new Promise(r => setTimeout(r, 500 + Math.random() * 500));
       return res.status(401).json({ success: false, error: 'Invalid credentials' });
     }
+
 
     const token = generateToken({ username });
     res.cookie('admin_token', token, cookieOptions());
