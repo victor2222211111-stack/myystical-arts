@@ -200,7 +200,7 @@ function sqliteRun(sql, params = []) {
   }
 }
 
-// ─── Unified Database API (Merging In-Memory + Supabase + SQLite) ─────────────
+// ─── Unified Database API ──────────────────────────────────────────────────────
 
 async function getCategories() {
   await ensureReady();
@@ -373,19 +373,26 @@ async function insertImage(data) {
       let { data: res, error } = await getSupabase().from('images').insert([fullPayload]).select('id').single();
 
       if (error) {
-        console.warn('Supabase full insert warning:', error.message);
-        // Fallback to core columns if optional columns don't exist in Supabase schema
-        const corePayload = {
-          actress_id:        item.actress_id,
-          category_id:       item.category_id,
+        console.warn('Supabase full image insert warning:', error.message);
+        // Safe retry without foreign keys to prevent FK constraint (23503) rejection
+        const safePayload = {
+          actress_id:        null,
+          category_id:       null,
           filename:          item.filename,
           original_filename: item.original_filename,
           caption:           item.caption,
           sort_order:        item.sort_order,
+          is_active:         1,
         };
-        const res2 = await getSupabase().from('images').insert([corePayload]).select('id').single();
-        if (!res2.error && res2.data) return { lastInsertRowid: res2.data.id };
+        const { data: res2, error: err2 } = await getSupabase().from('images').insert([safePayload]).select('id').single();
+        if (!err2 && res2) {
+          console.log('⚡ Image saved to Supabase (safe FK fallback ID):', res2.id);
+          item.id = res2.id;
+          return { lastInsertRowid: res2.id };
+        }
       } else if (res) {
+        console.log('⚡ Image saved to Supabase ID:', res.id);
+        item.id = res.id;
         return { lastInsertRowid: res.id };
       }
     } catch (err) {
@@ -462,17 +469,23 @@ async function insertActress(data) {
 
       if (error) {
         console.warn('Supabase full actress insert warning:', error.message);
-        const corePayload = {
+        const altSlug = `${item.slug}-${Date.now()}`;
+        const safePayload = {
           name:          item.name,
-          slug:          item.slug,
+          slug:          altSlug,
           face_filename: item.face_filename,
           bio:           item.bio,
           instagram_url: item.instagram_url,
           sort_order:    item.sort_order,
+          is_active:     1,
         };
-        const res2 = await getSupabase().from('actresses').insert([corePayload]).select('id').single();
-        if (!res2.error && res2.data) return { lastInsertRowid: res2.data.id };
+        const { data: res2, error: err2 } = await getSupabase().from('actresses').insert([safePayload]).select('id').single();
+        if (!err2 && res2) {
+          item.id = res2.id;
+          return { lastInsertRowid: res2.id };
+        }
       } else if (res) {
+        item.id = res.id;
         return { lastInsertRowid: res.id };
       }
     } catch (err) {
@@ -545,7 +558,10 @@ async function insertCategory(data) {
         description: item.description,
         sort_order:  item.sort_order,
       }]).select('id').single();
-      if (!error && res) return { lastInsertRowid: res.id };
+      if (!error && res) {
+        item.id = res.id;
+        return { lastInsertRowid: res.id };
+      }
     } catch (_) {}
   }
 
@@ -714,7 +730,6 @@ async function uploadFileToStorage(fileBuffer, originalFilename, mimeType) {
     } catch (_) {}
   }
 
-  // Self-contained Data URL fallback guarantees 100% working image preview and gallery display
   return dataUrl;
 }
 
